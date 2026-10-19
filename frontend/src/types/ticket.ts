@@ -86,6 +86,8 @@ export type ActivityAction =
   | 'review_flagged'
   | 'merged'
   | 'resolved'
+  | 'priority_changed'
+  | 'note_added'
 
 export type ActivityActorType = 'agent' | 'system' | 'automation'
 
@@ -97,6 +99,7 @@ export interface TicketActivity {
   action: ActivityAction
   detail: string | null
   createdAt: string
+  isInternalNote?: boolean
 }
 
 /* ------------------------------------------------------------------ */

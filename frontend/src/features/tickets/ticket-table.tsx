@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { ArrowDown, ArrowUpDown, ArrowUp } from 'lucide-react'
 import type { Ticket, TicketSortField } from '@/types/ticket'
 import { CATEGORY_LABELS, SORT_FIELD_LABELS, TEAM_LABELS } from '@/lib/ticket-config'
@@ -94,13 +94,16 @@ export function TicketTable({
   onSort: (field: TicketSortField) => void
 }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set())
 
   const allSelected = tickets.length > 0 && tickets.every((t) => selected.has(t.id))
   const someSelected = selected.size > 0 && !allSelected
 
   function openTicket(ticket: Ticket) {
-    navigate(`/tickets/${ticket.id}`)
+    navigate(`/tickets/${ticket.id}`, {
+      state: { returnTo: `${location.pathname}${location.search}` },
+    })
   }
 
   function toggleRow(id: string) {

@@ -1,16 +1,16 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppLayout } from '@/components/layout'
 import { DashboardPage } from '@/features/dashboard'
-import { TicketsPage } from '@/features/tickets'
-import { TicketDetailPlaceholder } from '@/features/tickets'
+import { TicketsPage, TicketDetailPage } from '@/features/tickets'
 import { PlaceholderPage } from '@/features/placeholders'
 
 /**
- * Phase 1 routing.
+ * TicketFlow application routes.
  *
- * Every sidebar entry resolves — unimplemented areas render an intentional
- * placeholder rather than a blank screen. `TicketsPage` covers All Tickets,
- * My Tickets, Unassigned and Needs Review through its `scope` prop.
+ * Every sidebar entry resolves. Unimplemented future areas render an intentional
+ * placeholder. `TicketsPage` covers All Tickets, My Tickets, Unassigned and Needs
+ * Review through its `scope` prop. `/tickets/:ticketId` resolves to the interactive
+ * TicketDetailPage.
  */
 export function AppRouter() {
   return (
@@ -23,7 +23,7 @@ export function AppRouter() {
         <Route path="/tickets/mine" element={<TicketsPage scope="mine" />} />
         <Route path="/tickets/unassigned" element={<TicketsPage scope="unassigned" />} />
         <Route path="/tickets/needs-review" element={<TicketsPage scope="needs_review" />} />
-        <Route path="/tickets/:ticketId" element={<TicketDetailPlaceholder />} />
+        <Route path="/tickets/:ticketId" element={<TicketDetailPage />} />
 
         {/* Phase 2+ areas */}
         <Route path="/analytics" element={<PlaceholderPage area="analytics" />} />

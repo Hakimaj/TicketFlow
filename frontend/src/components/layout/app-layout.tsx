@@ -15,21 +15,30 @@ export function AppLayout() {
 
   React.useEffect(() => {
     let cancelled = false
-    ticketService
-      .getDashboardStats()
-      .then((stats) => {
-        if (!cancelled) {
-          setCounts({
-            unassigned: stats.unassignedTickets,
-            needs_review: stats.needsReviewTickets,
-          })
-        }
-      })
-      .catch(() => {
-        /* Badge counts are cosmetic; the pages surface real errors. */
-      })
+    const fetchCounts = () => {
+      ticketService
+        .getDashboardStats()
+        .then((stats) => {
+          if (!cancelled) {
+            setCounts({
+              unassigned: stats.unassignedTickets,
+              needs_review: stats.needsReviewTickets,
+            })
+          }
+        })
+        .catch(() => {
+          /* Badge counts are cosmetic; the pages surface real errors. */
+        })
+    }
+
+    fetchCounts()
+    const unsubscribe = ticketService.subscribe(() => {
+      fetchCounts()
+    })
+
     return () => {
       cancelled = true
+      unsubscribe()
     }
   }, [])
 

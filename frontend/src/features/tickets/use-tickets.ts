@@ -85,6 +85,12 @@ export function useTickets(
   const refetch = React.useCallback(() => setRefetchKey((k) => k + 1), [])
 
   React.useEffect(() => {
+    return ticketService.subscribe(() => {
+      refetch()
+    })
+  }, [refetch])
+
+  React.useEffect(() => {
     let cancelled = false
     setLoading(true)
     setError(null)

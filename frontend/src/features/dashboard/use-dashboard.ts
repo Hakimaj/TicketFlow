@@ -12,6 +12,12 @@ export function useDashboardStats(trendDays = 30) {
   const refetch = React.useCallback(() => setRefetchKey((k) => k + 1), [])
 
   React.useEffect(() => {
+    return ticketService.subscribe(() => {
+      refetch()
+    })
+  }, [refetch])
+
+  React.useEffect(() => {
     let cancelled = false
     setLoading(true)
     setError(null)

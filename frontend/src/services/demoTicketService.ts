@@ -1,27 +1,36 @@
 import type {
   Agent,
+  ActivityAction,
   DashboardStats,
   Ticket,
   TicketActivity,
+  TicketCategory,
   TicketPage,
+  TicketPriority,
   TicketQuery,
+  TicketStatus,
 } from '@/types/ticket'
 import {
   ACTIVE_STATUSES,
   CATEGORY_LABELS,
+  CATEGORY_TEAM,
+  CHANNEL_LABELS,
+  PRIORITY_LABELS,
   PRIORITY_RANK,
+  STATUS_LABELS,
+  TEAM_LABELS,
   TICKET_STATUSES,
 } from '@/lib/ticket-config'
 import { dayKey } from '@/lib/format'
-import { DEMO_ACTIVITY, DEMO_AGENTS_BY_ID, DEMO_TICKETS } from '@/data'
+import { DEMO_ACTIVITY, DEMO_AGENTS, DEMO_AGENTS_BY_ID, DEMO_TICKETS, DEMO_USER } from '@/data'
 import { TicketServiceError, type TicketService } from './ticketService'
 
 /**
- * Phase 1 data source: the demonstration dataset, held in memory.
+ * Phase 1 & 2 data source: the demonstration dataset, held in memory.
  *
  * Simulates a small amount of network latency so loading and error states
  * are exercised the way they will be against a real API. No data is ever
- * persisted and nothing pretends to be a live backend.
+ * persisted to a server and nothing pretends to be a live backend.
  */
 
 const SIMULATED_LATENCY_MS = 280
@@ -57,12 +66,51 @@ const SORT_FIELD_GETTERS: Record<
 
 export class DemoTicketService implements TicketService {
   private readonly tickets: Ticket[]
+  private readonly activities: TicketActivity[]
+  private readonly listeners = new Set<() => void>()
 
-  constructor(tickets: Ticket[] = DEMO_TICKETS) {
-    // Sorted newest-first; ordering guarantees stable pagination later.
-    this.tickets = [...tickets].sort(
+  constructor(
+    tickets: Ticket[] = DEMO_TICKETS,
+    activities: TicketActivity[] = DEMO_ACTIVITY,
+  ) {
+    // Clone tickets and sort newest-first for stable default pagination.
+    this.tickets = tickets.map((t) => ({ ...t })).sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     )
+    this.activities = activities.map((a) => ({ ...a }))
+
+    // Ensure every ticket has a creation event in the activity timeline.
+    const existingTicketIds = new Set(this.activities.map((a) => a.ticketId))
+    for (const ticket of this.tickets) {
+      if (!existingTicketIds.has(ticket.id)) {
+        this.activities.push({
+          id: `ACT-INIT-${ticket.id}`,
+          ticketId: ticket.id,
+          actorName: ticket.requesterName,
+          actorType: 'system',
+          action: 'created',
+          detail: `Ticket created via ${CHANNEL_LABELS[ticket.channel]}.`,
+          createdAt: ticket.createdAt,
+        })
+      }
+    }
+  }
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
+  }
+
+  private notify(): void {
+    for (const listener of this.listeners) {
+      try {
+        listener()
+      } catch (err) {
+        console.error('Error in TicketService listener:', err)
+      }
+    }
   }
 
   async listTickets(query: TicketQuery): Promise<TicketPage> {
@@ -119,7 +167,18 @@ export class DemoTicketService implements TicketService {
 
   async getTicket(id: string): Promise<Ticket | null> {
     await delay(SIMULATED_LATENCY_MS)
-    return this.tickets.find((t) => t.id === id) ?? null
+    const found = this.tickets.find((t) => t.id === id)
+    return found ? { ...found } : null
+  }
+
+  async getAdjacentTicketIds(id: string): Promise<{ prevId: string | null; nextId: string | null }> {
+    await delay(40)
+    const idx = this.tickets.findIndex((t) => t.id === id)
+    if (idx === -1) return { prevId: null, nextId: null }
+    return {
+      prevId: idx > 0 ? this.tickets[idx - 1].id : null,
+      nextId: idx < this.tickets.length - 1 ? this.tickets[idx + 1].id : null,
+    }
   }
 
   async getAgent(id: string | null): Promise<Agent | null> {
@@ -127,12 +186,174 @@ export class DemoTicketService implements TicketService {
     return DEMO_AGENTS_BY_ID.get(id) ?? null
   }
 
+  async listAgents(): Promise<Agent[]> {
+    await delay(40)
+    return [...DEMO_AGENTS]
+  }
+
   async listActivity(limit?: number): Promise<TicketActivity[]> {
     await delay(SIMULATED_LATENCY_MS)
-    const sorted = [...DEMO_ACTIVITY].sort(
+    const sorted = [...this.activities].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     )
     return typeof limit === 'number' ? sorted.slice(0, limit) : sorted
+  }
+
+  async getTicketActivities(ticketId: string): Promise<TicketActivity[]> {
+    await delay(SIMULATED_LATENCY_MS)
+    return this.activities
+      .filter((a) => a.ticketId === ticketId)
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+  }
+
+  async updateStatus(id: string, status: TicketStatus, agent: Agent = DEMO_USER): Promise<Ticket> {
+    await delay(SIMULATED_LATENCY_MS)
+    const ticket = this.tickets.find((t) => t.id === id)
+    if (!ticket) throw new TicketServiceError(`Ticket ${id} was not found.`)
+    if (ticket.status === status) return { ...ticket }
+
+    const prevStatus = ticket.status
+    ticket.status = status
+    ticket.updatedAt = new Date().toISOString()
+    if (status === 'resolved' || status === 'closed') {
+      ticket.dueAt = null
+    }
+
+    const action: ActivityAction =
+      status === 'resolved'
+        ? 'resolved'
+        : status === 'needs_review'
+          ? 'review_flagged'
+          : 'status_changed'
+
+    const activity: TicketActivity = {
+      id: `ACT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      ticketId: id,
+      actorName: agent.name,
+      actorType: 'agent',
+      action,
+      detail: `Status changed from ${STATUS_LABELS[prevStatus]} to ${STATUS_LABELS[status]}.`,
+      createdAt: new Date().toISOString(),
+    }
+    this.activities.push(activity)
+    this.notify()
+    return { ...ticket }
+  }
+
+  async updatePriority(id: string, priority: TicketPriority, agent: Agent = DEMO_USER): Promise<Ticket> {
+    await delay(SIMULATED_LATENCY_MS)
+    const ticket = this.tickets.find((t) => t.id === id)
+    if (!ticket) throw new TicketServiceError(`Ticket ${id} was not found.`)
+    if (ticket.priority === priority) return { ...ticket }
+
+    const prevPriority = ticket.priority
+    ticket.priority = priority
+    ticket.updatedAt = new Date().toISOString()
+
+    if (ticket.status !== 'resolved' && ticket.status !== 'closed') {
+      if (priority === 'urgent' || priority === 'high') {
+        ticket.dueAt = new Date(Date.now() + 8 * 3600 * 1000).toISOString()
+      } else {
+        ticket.dueAt = null
+      }
+    }
+
+    const activity: TicketActivity = {
+      id: `ACT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      ticketId: id,
+      actorName: agent.name,
+      actorType: 'agent',
+      action: 'priority_changed',
+      detail: `Priority changed from ${PRIORITY_LABELS[prevPriority]} to ${PRIORITY_LABELS[priority]}.`,
+      createdAt: new Date().toISOString(),
+    }
+    this.activities.push(activity)
+    this.notify()
+    return { ...ticket }
+  }
+
+  async updateCategory(id: string, category: TicketCategory, agent: Agent = DEMO_USER): Promise<Ticket> {
+    await delay(SIMULATED_LATENCY_MS)
+    const ticket = this.tickets.find((t) => t.id === id)
+    if (!ticket) throw new TicketServiceError(`Ticket ${id} was not found.`)
+    if (ticket.category === category) return { ...ticket }
+
+    const prevCategory = ticket.category
+    ticket.category = category
+    ticket.assignedTeam = CATEGORY_TEAM[category]
+    ticket.updatedAt = new Date().toISOString()
+
+    const activity: TicketActivity = {
+      id: `ACT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      ticketId: id,
+      actorName: agent.name,
+      actorType: 'agent',
+      action: 'categorized',
+      detail: `Category changed from ${CATEGORY_LABELS[prevCategory]} to ${CATEGORY_LABELS[category]} (routed to ${TEAM_LABELS[ticket.assignedTeam]}).`,
+      createdAt: new Date().toISOString(),
+    }
+    this.activities.push(activity)
+    this.notify()
+    return { ...ticket }
+  }
+
+  async assignTicket(id: string, agentId: string | null, agent: Agent = DEMO_USER): Promise<Ticket> {
+    await delay(SIMULATED_LATENCY_MS)
+    const ticket = this.tickets.find((t) => t.id === id)
+    if (!ticket) throw new TicketServiceError(`Ticket ${id} was not found.`)
+    if (ticket.assignedAgentId === agentId) return { ...ticket }
+
+    const prevAgentId = ticket.assignedAgentId
+    const prevAgent = prevAgentId ? DEMO_AGENTS_BY_ID.get(prevAgentId) : null
+    const newAgent = agentId ? DEMO_AGENTS_BY_ID.get(agentId) : null
+
+    ticket.assignedAgentId = agentId
+    ticket.updatedAt = new Date().toISOString()
+
+    const detail = newAgent
+      ? prevAgent
+        ? `Reassigned from ${prevAgent.name} to ${newAgent.name}.`
+        : `Assigned to ${newAgent.name}.`
+      : `Unassigned (previously assigned to ${prevAgent?.name ?? 'unknown'}).`
+
+    const activity: TicketActivity = {
+      id: `ACT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      ticketId: id,
+      actorName: agent.name,
+      actorType: 'agent',
+      action: 'assigned',
+      detail,
+      createdAt: new Date().toISOString(),
+    }
+    this.activities.push(activity)
+    this.notify()
+    return { ...ticket }
+  }
+
+  async addInternalNote(id: string, note: string, agent: Agent = DEMO_USER): Promise<TicketActivity> {
+    await delay(SIMULATED_LATENCY_MS)
+    const ticket = this.tickets.find((t) => t.id === id)
+    if (!ticket) throw new TicketServiceError(`Ticket ${id} was not found.`)
+    const trimmed = note.trim()
+    if (!trimmed) {
+      throw new TicketServiceError('Internal note content cannot be empty.')
+    }
+
+    ticket.updatedAt = new Date().toISOString()
+
+    const activity: TicketActivity = {
+      id: `ACT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      ticketId: id,
+      actorName: agent.name,
+      actorType: 'agent',
+      action: 'note_added',
+      detail: trimmed,
+      createdAt: new Date().toISOString(),
+      isInternalNote: true,
+    }
+    this.activities.push(activity)
+    this.notify()
+    return activity
   }
 
   async getDashboardStats(trendDays = 30): Promise<DashboardStats> {
@@ -212,7 +433,7 @@ export class DemoTicketService implements TicketService {
       categoryDistribution,
       prioritySummary,
       recentTickets: all.slice(0, 7),
-      recentActivity: [...DEMO_ACTIVITY]
+      recentActivity: [...this.activities]
         .sort(
           (a, b) =>
             new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),

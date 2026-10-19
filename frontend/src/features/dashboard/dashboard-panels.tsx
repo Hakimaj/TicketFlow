@@ -1,9 +1,11 @@
 import type { ElementType } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
+  ArrowUpDown,
   BellRing,
   CheckCircle2,
   CircleDot,
+  MessageSquare,
   PencilLine,
   Send,
   Shuffle,
@@ -41,12 +43,12 @@ export function RecentTickets({ tickets }: { tickets: DashboardStats['recentTick
           <TableRow
             key={ticket.id}
             className="cursor-pointer"
-            onClick={() => navigate(`/tickets/${ticket.id}`)}
+            onClick={() => navigate(`/tickets/${ticket.id}`, { state: { returnTo: '/' } })}
             onKeyDown={(e) => {
               if (e.target !== e.currentTarget) return
               if (e.key === 'Enter') {
                 e.preventDefault()
-                navigate(`/tickets/${ticket.id}`)
+                navigate(`/tickets/${ticket.id}`, { state: { returnTo: '/' } })
               }
             }}
             tabIndex={0}
@@ -138,6 +140,8 @@ const ACTIVITY_META: Record<ActivityAction, { icon: ElementType; label: string }
   review_flagged: { icon: BellRing, label: 'Flagged for review' },
   merged: { icon: Shuffle, label: 'Merged' },
   resolved: { icon: CheckCircle2, label: 'Resolved' },
+  priority_changed: { icon: ArrowUpDown, label: 'Priority changed' },
+  note_added: { icon: MessageSquare, label: 'Internal note' },
 }
 
 export function RecentActivity({
@@ -149,7 +153,7 @@ export function RecentActivity({
     <ol className="space-y-3 px-4 pb-4">
       {activity.map((event) => {
         const meta = ACTIVITY_META[event.action]
-        const Icon = meta.icon
+        const Icon = meta?.icon ?? CircleDot
         return (
           <li key={event.id} className="flex gap-2.5">
             <span
@@ -160,7 +164,9 @@ export function RecentActivity({
                   ? 'bg-warning-tint text-warning'
                   : event.action === 'resolved'
                     ? 'bg-success-tint text-success'
-                    : 'bg-muted text-muted-foreground',
+                    : event.action === 'note_added'
+                      ? 'bg-primary-tint text-primary'
+                      : 'bg-muted text-muted-foreground',
               )}
             >
               <Icon />
