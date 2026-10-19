@@ -1,0 +1,186 @@
+import type { ElementType } from 'react'
+import { useNavigate } from 'react-router-dom'
+import {
+  BellRing,
+  CheckCircle2,
+  CircleDot,
+  PencilLine,
+  Send,
+  Shuffle,
+  UserPlus,
+} from 'lucide-react'
+import type { ActivityAction, DashboardStats } from '@/types/ticket'
+import { formatRelativeTime } from '@/lib/format'
+import { StatusBadge, PriorityBadge } from '@/components/shared/ticket-badges'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { cn } from '@/lib/utils'
+
+/* ---------------------------- Recent tickets ---------------------------- */
+
+export function RecentTickets({ tickets }: { tickets: DashboardStats['recentTickets'] }) {
+  const navigate = useNavigate()
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow className="hover:bg-card-muted">
+          <TableHead>Ticket</TableHead>
+          <TableHead>Status</TableHead>
+          <TableHead className="hidden sm:table-cell">Priority</TableHead>
+          <TableHead className="pr-4 text-right">Received</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {tickets.map((ticket) => (
+          <TableRow
+            key={ticket.id}
+            className="cursor-pointer"
+            onClick={() => navigate(`/tickets/${ticket.id}`)}
+            onKeyDown={(e) => {
+              if (e.target !== e.currentTarget) return
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                navigate(`/tickets/${ticket.id}`)
+              }
+            }}
+            tabIndex={0}
+          >
+            <TableCell className="max-w-[280px] pl-4">
+              <span className="block truncate font-medium text-foreground">
+                {ticket.subject}
+              </span>
+              <span className="block text-xs text-muted-foreground tabular-nums">
+                {ticket.id}
+              </span>
+            </TableCell>
+            <TableCell>
+              <StatusBadge status={ticket.status} />
+            </TableCell>
+            <TableCell className="hidden sm:table-cell">
+              <PriorityBadge priority={ticket.priority} />
+            </TableCell>
+            <TableCell className="whitespace-nowrap pr-4 text-right text-xs text-muted-foreground">
+              {formatRelativeTime(ticket.createdAt)}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  )
+}
+
+/* -------------------------- Compact priority summary -------------------------- */
+
+export function PrioritySummary({
+  data,
+}: {
+  data: DashboardStats['prioritySummary']
+}) {
+  const byPriority = new Map(data.map((row) => [row.priority, row]))
+
+  return (
+    <Table aria-label="Open tickets by priority">
+      <TableHeader>
+        <TableRow className="hover:bg-card-muted">
+          <TableHead className="pl-4">Priority</TableHead>
+          <TableHead className="text-right">Open</TableHead>
+          <TableHead className="text-right">Pending</TableHead>
+          <TableHead className="pr-4 text-right">Review</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {(['urgent', 'high', 'normal', 'low'] as const).map((priority) => {
+          const row = byPriority.get(priority)
+          if (!row) return null
+          return (
+            <TableRow key={priority}>
+              <TableCell className="pl-4">
+                <PriorityBadge priority={priority} />
+              </TableCell>
+              <TableCell className={cn('text-right tabular-nums', row.open > 0 ? 'text-foreground' : 'text-subtle-foreground')}>
+                {row.open}
+              </TableCell>
+              <TableCell className={cn('text-right tabular-nums', row.pending > 0 ? 'text-foreground' : 'text-subtle-foreground')}>
+                {row.pending}
+              </TableCell>
+              <TableCell
+                className={cn(
+                  'pr-4 text-right tabular-nums',
+                  row.needsReview > 0 ? 'text-foreground' : 'text-subtle-foreground',
+                )}
+              >
+                {row.needsReview}
+              </TableCell>
+            </TableRow>
+          )
+        })}
+      </TableBody>
+    </Table>
+  )
+}
+
+/* ----------------------------- Recent activity ----------------------------- */
+
+const ACTIVITY_META: Record<ActivityAction, { icon: ElementType; label: string }> = {
+  created: { icon: CircleDot, label: 'Created' },
+  categorized: { icon: Shuffle, label: 'Categorized' },
+  assigned: { icon: UserPlus, label: 'Assigned' },
+  replied_draft: { icon: PencilLine, label: 'Draft reply' },
+  replied_sent: { icon: Send, label: 'Reply sent' },
+  status_changed: { icon: Shuffle, label: 'Status changed' },
+  escalated: { icon: BellRing, label: 'Escalated' },
+  review_flagged: { icon: BellRing, label: 'Flagged for review' },
+  merged: { icon: Shuffle, label: 'Merged' },
+  resolved: { icon: CheckCircle2, label: 'Resolved' },
+}
+
+export function RecentActivity({
+  activity,
+}: {
+  activity: DashboardStats['recentActivity']
+}) {
+  return (
+    <ol className="space-y-3 px-4 pb-4">
+      {activity.map((event) => {
+        const meta = ACTIVITY_META[event.action]
+        const Icon = meta.icon
+        return (
+          <li key={event.id} className="flex gap-2.5">
+            <span
+              aria-hidden="true"
+              className={cn(
+                'mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full [&_svg]:size-3',
+                event.action === 'review_flagged' || event.action === 'escalated'
+                  ? 'bg-warning-tint text-warning'
+                  : event.action === 'resolved'
+                    ? 'bg-success-tint text-success'
+                    : 'bg-muted text-muted-foreground',
+              )}
+            >
+              <Icon />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm leading-snug">
+                <span className="font-medium text-foreground">{meta.label}</span>{' '}
+                <span className="font-mono text-xs text-muted-foreground">{event.ticketId}</span>
+                <span className="text-muted-foreground"> — {event.actorName}</span>
+                <span className="text-xs text-subtle-foreground"> · {formatRelativeTime(event.createdAt)}</span>
+              </p>
+              {event.detail ? (
+                <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground" title={event.detail}>
+                  {event.detail}
+                </p>
+              ) : null}
+            </div>
+          </li>
+        )
+      })}
+    </ol>
+  )
+}

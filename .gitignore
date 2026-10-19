@@ -1,0 +1,20 @@
+# Root .gitignore — TicketFlow
+node_modules/
+dist/
+build/
+coverage/
+*.log
+npm-debug.log*
+
+# Environment files with secrets must never be committed.
+# `.env.example` (non-secret template) IS committed.
+.env
+.env.local
+.env.*.local
+!*.env.example
+
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/

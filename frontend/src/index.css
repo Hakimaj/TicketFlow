@@ -1,0 +1,147 @@
+@import 'tailwindcss';
+
+/* ------------------------------------------------------------------ */
+/* TicketFlow design tokens — light, professional helpdesk aesthetic   */
+/* ------------------------------------------------------------------ */
+
+:root {
+  /* Surfaces */
+  --background: #f7f8fa; /* app background, very light neutral gray */
+  --card: #ffffff; /* cards, header, sidebar */
+  --card-muted: #f8fafc; /* table zebra / panel wells */
+  --foreground: #0f172a; /* slate-900 text */
+  --muted: #f1f5f9;
+  --muted-foreground: #526075; /* slate-ish secondary text */
+  --subtle-foreground: #7c8db0;
+
+  /* Borders */
+  --border: #e3e8ef;
+  --border-strong: #cbd5e1;
+  --input: #dbe1ea;
+
+  /* Primary accent — restrained blue */
+  --primary: #2563eb;
+  --primary-strong: #1d4ed8;
+  --primary-foreground: #ffffff;
+  --primary-tint: #eff4ff;
+  --primary-soft: #dbe5ff;
+
+  /* Focus */
+  --ring: #93b4f9;
+
+  /* Semantic (soft, accessible) */
+  --success: #15803d;
+  --success-tint: #ecfdf3;
+  --warning: #b45309;
+  --warning-tint: #fff8eb;
+  --danger: #b91c1c;
+  --danger-tint: #fef2f2;
+  --info: #1d4ed8;
+  --info-tint: #eff6ff;
+
+  /* Misc */
+  --radius: 0.5rem; /* 8px base radius system */
+  --overlay: rgb(15 23 42 / 0.45);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+@theme inline {
+  /* Font stack: Inter Variable, locally bundled via @fontsource */
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+
+  /* Color tokens → Tailwind utilities (bg-*, text-*, border-*) */
+  --color-background: var(--background);
+  --color-card: var(--card);
+  --color-card-muted: var(--card-muted);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-primary: var(--primary);
+  --color-primary-strong: var(--primary-strong);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-tint: var(--primary-tint);
+  --color-primary-soft: var(--primary-soft);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-tint: var(--success-tint);
+  --color-warning: var(--warning);
+  --color-warning-tint: var(--warning-tint);
+  --color-danger: var(--danger);
+  --color-danger-tint: var(--danger-tint);
+  --color-info: var(--info);
+  --color-info-tint: var(--info-tint);
+
+  /* Radius scale */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  /* Subtle elevation only — no glow, no glass */
+  --shadow-card: 0 1px 2px 0 rgb(15 23 42 / 0.05);
+  --shadow-pop: 0 4px 16px -2px rgb(15 23 42 / 0.1), 0 2px 4px -2px rgb(15 23 42 / 0.06);
+
+  /* Compact typography scale for a medium-density product UI */
+  --text-2xs: 0.6875rem; /* 11px — tiny labels/badges */
+  --text-2xs--line-height: 1rem;
+  --text-xs: 0.75rem; /* 12px */
+  --text-xs--line-height: 1.125rem;
+  --text-sm: 0.8125rem; /* 13px — default UI text */
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.875rem; /* 14px */
+  --text-base--line-height: 1.375rem;
+  --text-lg: 1rem; /* 16px */
+  --text-lg--line-height: 1.5rem;
+  --text-xl: 1.125rem; /* 18px — page titles */
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.375rem; /* 22px — dashboard headings */
+  --text-2xl--line-height: 1.875rem;
+  --text-3xl: 1.75rem; /* 28px — big metric numerals */
+  --text-3xl--line-height: 2.125rem;
+}
+
+/* ------------------------------------------------------------------ */
+/* Base                                                                */
+/* ------------------------------------------------------------------ */
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  font-family: var(--font-sans);
+  color: var(--foreground);
+}
+
+body {
+  margin: 0;
+  background-color: var(--background);
+  color: var(--foreground);
+  font-size: var(--text-sm);
+  line-height: 1.25rem;
+}
+
+/* Visible, consistent focus indicator across all interactive elements */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+::selection {
+  background: var(--primary-soft);
+}
+
+/* Slim scrollbars that stay out of the way */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
