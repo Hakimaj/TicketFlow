@@ -17,10 +17,22 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        // Keep the heavy charting library in its own cacheable chunk.
-        manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom'],
-          charts: ['recharts'],
+        // Split heavy, rarely-changing dependencies into cacheable chunks so
+        // the application code stays well below the 500 kB warning threshold.
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+          if (id.includes('recharts') || id.includes('d3-')) return 'charts'
+          if (id.includes('@radix-ui')) return 'radix'
+          if (id.includes('lucide-react')) return 'icons'
+          if (
+            id.includes('react-router') ||
+            id.includes('react-dom') ||
+            id.includes('node_modules/react/') ||
+            id.includes('scheduler')
+          ) {
+            return 'vendor'
+          }
+          return undefined
         },
       },
     },

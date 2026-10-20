@@ -6,8 +6,8 @@ import { ticketService } from '@/services'
 
 /**
  * Persistent application shell: fixed sidebar + sticky top header scrolling
- * content. Counts for the "Unassigned" and "Needs Review" badges are fetched
- * once from the demo service, exactly as the future API integration would.
+ * content. Queue badge counts are derived from the shared service and refresh
+ * whenever a ticket or reply mutation is published.
  */
 export function AppLayout() {
   const location = useLocation()
@@ -23,6 +23,7 @@ export function AppLayout() {
             setCounts({
               unassigned: stats.unassignedTickets,
               needs_review: stats.needsReviewTickets,
+              pending_approvals: stats.pendingApprovals,
             })
           }
         })

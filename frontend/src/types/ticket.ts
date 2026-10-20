@@ -88,6 +88,9 @@ export type ActivityAction =
   | 'resolved'
   | 'priority_changed'
   | 'note_added'
+  | 'reply_submitted'
+  | 'reply_approved'
+  | 'reply_changes_requested'
 
 export type ActivityActorType = 'agent' | 'system' | 'automation'
 
@@ -145,6 +148,7 @@ export interface DashboardStats {
   unassignedTickets: number
   highPriorityOpen: number
   needsReviewTickets: number
+  pendingApprovals: number
   /** One entry per status, for compact summaries. */
   statusCounts: Record<TicketStatus, number>
   /** Received per day over a trailing window, plus resolved per day. */
@@ -164,3 +168,5 @@ export interface DashboardStats {
   recentTickets: Ticket[]
   recentActivity: TicketActivity[]
 }
+
+export * from './reply'

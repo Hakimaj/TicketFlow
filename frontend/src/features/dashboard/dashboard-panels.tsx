@@ -1,6 +1,7 @@
 import type { ElementType } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
+  AlertTriangle,
   ArrowUpDown,
   BellRing,
   CheckCircle2,
@@ -142,6 +143,9 @@ const ACTIVITY_META: Record<ActivityAction, { icon: ElementType; label: string }
   resolved: { icon: CheckCircle2, label: 'Resolved' },
   priority_changed: { icon: ArrowUpDown, label: 'Priority changed' },
   note_added: { icon: MessageSquare, label: 'Internal note' },
+  reply_submitted: { icon: Send, label: 'Reply submitted' },
+  reply_approved: { icon: CheckCircle2, label: 'Reply approved' },
+  reply_changes_requested: { icon: AlertTriangle, label: 'Changes requested' },
 }
 
 export function RecentActivity({
@@ -160,11 +164,16 @@ export function RecentActivity({
               aria-hidden="true"
               className={cn(
                 'mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full [&_svg]:size-3',
-                event.action === 'review_flagged' || event.action === 'escalated'
+                event.action === 'review_flagged' ||
+                  event.action === 'escalated' ||
+                  event.action === 'reply_changes_requested'
                   ? 'bg-warning-tint text-warning'
-                  : event.action === 'resolved'
+                  : event.action === 'resolved' ||
+                      event.action === 'reply_approved' ||
+                      event.action === 'replied_sent'
                     ? 'bg-success-tint text-success'
-                    : event.action === 'note_added'
+                    : event.action === 'note_added' ||
+                        event.action === 'reply_submitted'
                       ? 'bg-primary-tint text-primary'
                       : 'bg-muted text-muted-foreground',
               )}

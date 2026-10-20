@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { AlertOctagon, ChevronRight, CircleSlash, Inbox as InboxIcon, UserRoundCheck } from 'lucide-react'
+import { AlertOctagon, ChevronRight, CircleSlash, Inbox as InboxIcon, ShieldCheck, UserRoundCheck } from 'lucide-react'
 import { PageHeader } from '@/components/shared/page-header'
 import { MetricCard } from '@/components/shared/metric-card'
 import { EmptyState, ErrorState, PanelSkeleton } from '@/components/shared/states'
@@ -21,7 +21,7 @@ export function DashboardPage() {
     <div>
       <PageHeader
         title="Overview"
-        description="Support operations at a glance. Derived from the Phase 1 demonstration dataset — no external services are connected."
+        description="Support operations at a glance. Derived from the demonstration dataset — no external services are connected."
       />
 
       {loading ? (
@@ -80,6 +80,28 @@ export function DashboardPage() {
               hint={stats.needsReviewTickets > 0 ? { text: 'Review', href: '/tickets/needs-review' } : undefined}
             />
           </div>
+
+          {/* Pending Reply Approvals Banner */}
+          {stats.pendingApprovals > 0 ? (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning-tint/40 px-4 py-2.5 text-xs text-foreground shadow-xs">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="size-4 shrink-0 text-warning" aria-hidden="true" />
+                <span>
+                  <strong className="font-semibold text-foreground">
+                    {stats.pendingApprovals} customer {stats.pendingApprovals === 1 ? 'reply' : 'replies'}
+                  </strong>{' '}
+                  awaiting human supervisor review before sending.
+                </span>
+              </div>
+              <Link
+                to="/approvals"
+                className="inline-flex items-center gap-1 font-semibold text-primary hover:underline"
+              >
+                Open Reply Approvals
+                <ChevronRight className="size-3.5" aria-hidden="true" />
+              </Link>
+            </div>
+          ) : null}
 
           {/* Charts row */}
           <div className="mt-4 grid gap-4 xl:grid-cols-3">

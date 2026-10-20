@@ -11,9 +11,15 @@ import { cn } from '@/lib/utils'
 
 /* ------------------------------ Loading ------------------------------ */
 
-export function ListSkeleton({ rows = 8 }: { rows?: number }) {
+export function ListSkeleton({
+  rows = 8,
+  label = 'Loading tickets',
+}: {
+  rows?: number
+  label?: string
+}) {
   return (
-    <div role="status" aria-live="polite" aria-label="Loading tickets">
+    <div role="status" aria-live="polite" aria-label={label}>
       <span className="sr-only">Loading…</span>
       <div className="divide-y divide-border">
         {Array.from({ length: rows }).map((_, i) => (

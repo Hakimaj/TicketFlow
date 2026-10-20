@@ -9,8 +9,11 @@ import {
   ChevronRight,
   CircleDot,
   Clock,
+  FileText,
   Lock,
   MessageSquare,
+  RotateCcw,
+  Send,
   Shuffle,
   StickyNote,
   UserCheck,
@@ -25,6 +28,8 @@ import type {
   TicketPriority,
   TicketStatus,
 } from '@/types/ticket'
+import type { CustomerReply } from '@/types/reply'
+import { ReplyComposer } from './reply-composer'
 import {
   CATEGORY_LABELS,
   CHANNEL_LABELS,
@@ -74,6 +79,7 @@ export function TicketDetailPage() {
 
   const [ticket, setTicket] = React.useState<Ticket | null>(null)
   const [activities, setActivities] = React.useState<TicketActivity[]>([])
+  const [replies, setReplies] = React.useState<CustomerReply[]>([])
   const [agents, setAgents] = React.useState<Agent[]>([])
   const [adjacent, setAdjacent] = React.useState<{
     prevId: string | null
@@ -115,7 +121,7 @@ export function TicketDetailPage() {
     }
   }, [feedback])
 
-  // Load ticket, agents, activities and adjacent IDs
+  // Load ticket, agents, activities, adjacent IDs and replies
   const loadTicketData = React.useCallback(
     async (id: string, isInitial = false) => {
       if (isInitial) {
@@ -123,18 +129,20 @@ export function TicketDetailPage() {
       }
       setError(null)
       try {
-        const [ticketData, activityData, agentList, adjacentData] =
+        const [ticketData, activityData, agentList, adjacentData, replyList] =
           await Promise.all([
             ticketService.getTicket(id),
             ticketService.getTicketActivities(id),
             ticketService.listAgents(),
             ticketService.getAdjacentTicketIds(id),
+            ticketService.getReplies(id),
           ])
 
         setTicket(ticketData)
         setActivities(activityData)
         setAgents(agentList)
         setAdjacent(adjacentData)
+        setReplies(replyList)
       } catch (err) {
         setError(
           err instanceof Error
@@ -544,7 +552,15 @@ export function TicketDetailPage() {
             </CardContent>
           </Card>
 
-          {/* 2. Internal Workspace & Notes Composer */}
+          {/* 2. Customer Reply Composer & Approval Workflow */}
+          <ReplyComposer
+            ticket={ticket}
+            replies={replies}
+            onReplyUpdated={() => loadTicketData(ticket.id, false)}
+            showFeedback={showFeedback}
+          />
+
+          {/* 3. Internal Workspace & Notes Composer */}
           <Card className="border-warning/30 bg-card shadow-xs">
             <CardHeader className="border-b border-warning/20 bg-warning-tint/20 px-5 py-3">
               <div className="flex items-center justify-between">
@@ -607,7 +623,7 @@ export function TicketDetailPage() {
             </CardContent>
           </Card>
 
-          {/* 3. Chronological Activity & Notes History */}
+          {/* 4. Chronological Activity & Notes History */}
           <Card className="border-border shadow-xs">
             <CardHeader className="border-b border-border px-5 py-3.5">
               <div className="flex items-center justify-between">
@@ -631,6 +647,12 @@ export function TicketDetailPage() {
                 <ol className="relative space-y-4 border-l border-border pl-6">
                   {activities.map((item) => {
                     const isNote = item.action === 'note_added' || item.isInternalNote
+                    const isReplySent = item.action === 'replied_sent'
+                    const isReplyApproved = item.action === 'reply_approved'
+                    const isReplyChanges = item.action === 'reply_changes_requested'
+                    const isReplySubmitted = item.action === 'reply_submitted'
+                    const isReplyDraft = item.action === 'replied_draft'
+
                     return (
                       <li key={item.id} className="relative">
                         {/* Bullet / icon on line */}
@@ -640,17 +662,37 @@ export function TicketDetailPage() {
                             'absolute -left-[31px] top-1 flex size-6 items-center justify-center rounded-full border border-card shadow-xs [&_svg]:size-3',
                             isNote
                               ? 'bg-warning-tint text-warning border-warning/40'
-                              : item.action === 'resolved'
-                                ? 'bg-success-tint text-success'
-                                : item.action === 'review_flagged'
-                                  ? 'bg-warning-tint text-warning'
-                                  : item.action === 'created'
-                                    ? 'bg-primary-tint text-primary'
-                                    : 'bg-muted text-muted-foreground',
+                              : isReplySent
+                                ? 'bg-primary-tint text-primary border-primary/40'
+                                : isReplyApproved
+                                  ? 'bg-success-tint text-success border-success/40'
+                                  : isReplyChanges
+                                    ? 'bg-danger-tint text-danger border-danger/40'
+                                    : isReplySubmitted
+                                      ? 'bg-primary-tint text-primary border-primary/40'
+                                      : isReplyDraft
+                                        ? 'bg-muted text-muted-foreground border-border'
+                                        : item.action === 'resolved'
+                                          ? 'bg-success-tint text-success border-success/40'
+                                          : item.action === 'review_flagged'
+                                            ? 'bg-warning-tint text-warning border-warning/40'
+                                            : item.action === 'created'
+                                              ? 'bg-primary-tint text-primary border-primary/40'
+                                              : 'bg-muted text-muted-foreground border-border',
                           )}
                         >
                           {isNote ? (
                             <Lock aria-hidden="true" />
+                          ) : isReplySent ? (
+                            <Send aria-hidden="true" />
+                          ) : isReplyApproved ? (
+                            <CheckCircle2 aria-hidden="true" />
+                          ) : isReplyChanges ? (
+                            <RotateCcw aria-hidden="true" />
+                          ) : isReplySubmitted ? (
+                            <Clock aria-hidden="true" />
+                          ) : isReplyDraft ? (
+                            <FileText aria-hidden="true" />
                           ) : item.action === 'resolved' ? (
                             <CheckCircle2 aria-hidden="true" />
                           ) : item.action === 'assigned' ? (
@@ -686,6 +728,54 @@ export function TicketDetailPage() {
                               {item.detail}
                             </p>
                           </div>
+                        ) : isReplyChanges ? (
+                          /* Changes requested card */
+                          <div className="rounded-lg border border-danger/30 bg-danger-tint/25 p-3.5 shadow-xs">
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-danger/20 pb-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-semibold text-foreground">
+                                  {item.actorName}
+                                </span>
+                                <Badge variant="outline" className="border-danger/50 bg-card text-2xs text-danger font-medium">
+                                  Changes Requested
+                                </Badge>
+                              </div>
+                              <time
+                                dateTime={item.createdAt}
+                                className="text-2xs text-muted-foreground"
+                                title={formatDateTime(item.createdAt)}
+                              >
+                                {formatDateTime(item.createdAt)} ({formatRelativeTime(item.createdAt)})
+                              </time>
+                            </div>
+                            <p className="mt-2 whitespace-pre-line text-xs leading-relaxed text-foreground">
+                              {item.detail}
+                            </p>
+                          </div>
+                        ) : isReplySent ? (
+                          /* Reply sent card */
+                          <div className="rounded-lg border border-primary/30 bg-primary-tint/20 p-3.5 shadow-xs">
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-primary/20 pb-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-semibold text-foreground">
+                                  {item.actorName}
+                                </span>
+                                <Badge variant="primary" className="text-2xs">
+                                  Customer Reply · Sent (Demo)
+                                </Badge>
+                              </div>
+                              <time
+                                dateTime={item.createdAt}
+                                className="text-2xs text-muted-foreground"
+                                title={formatDateTime(item.createdAt)}
+                              >
+                                {formatDateTime(item.createdAt)} ({formatRelativeTime(item.createdAt)})
+                              </time>
+                            </div>
+                            <p className="mt-2 whitespace-pre-line text-xs leading-relaxed text-foreground">
+                              {item.detail}
+                            </p>
+                          </div>
                         ) : (
                           /* Standard audit entry */
                           <div className="text-xs">
@@ -696,6 +786,15 @@ export function TicketDetailPage() {
                               <span className="text-muted-foreground">
                                 {item.detail ?? item.action}
                               </span>
+                              {isReplyApproved ? (
+                                <Badge variant="outline" className="border-success/50 bg-success-tint text-2xs text-success font-medium py-0">
+                                  Approved
+                                </Badge>
+                              ) : isReplySubmitted ? (
+                                <Badge variant="outline" className="border-primary/40 bg-primary-tint text-2xs text-primary font-medium py-0">
+                                  Pending Approval
+                                </Badge>
+                              ) : null}
                             </div>
                             <time
                               dateTime={item.createdAt}

@@ -4,6 +4,7 @@ import {
   Inbox,
   LayoutDashboard,
   ScrollText,
+  ShieldCheck,
   Ticket,
   UserRound,
 } from 'lucide-react'
@@ -15,15 +16,17 @@ export type NavScope =
   | 'mine'
   | 'unassigned'
   | 'needs_review'
+  | 'reply_approvals'
   | 'analytics'
   | 'activity'
   | 'settings'
   | 'ticket_detail'
 
-/** Optional sidebar badge counters (unassigned / needs review). */
+/** Optional sidebar badge counters (unassigned / needs review / pending approvals). */
 export type NavCounts = {
   unassigned?: number
   needs_review?: number
+  pending_approvals?: number
 }
 
 export interface NavItem {
@@ -31,14 +34,13 @@ export interface NavItem {
   label: string
   path: string
   icon: ComponentType<{ className?: string; 'aria-hidden'?: boolean | 'true' | 'false' }>
-  /** Primary items never show a counter; these two do when > 0. */
-  counter?: 'unassigned' | 'needs_review'
+  /** Items with counters render a badge when count > 0. */
+  counter?: 'unassigned' | 'needs_review' | 'pending_approvals'
   description: string
 }
 
 /**
- * Left sidebar navigation. Routes not implemented in Phase 1 still resolve
- * to placeholder pages so no entry is ever broken.
+ * Left sidebar navigation.
  */
 export const NAV_ITEMS: NavItem[] = [
   {
@@ -77,6 +79,14 @@ export const NAV_ITEMS: NavItem[] = [
     icon: BellRing,
     counter: 'needs_review',
     description: 'Flagged for human triage',
+  },
+  {
+    key: 'reply_approvals',
+    label: 'Reply Approvals',
+    path: '/approvals',
+    icon: ShieldCheck,
+    counter: 'pending_approvals',
+    description: 'Review and approve customer replies',
   },
   {
     key: 'analytics',

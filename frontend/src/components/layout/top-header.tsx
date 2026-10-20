@@ -31,6 +31,7 @@ const TITLES: Record<NavScope, { title: string; crumb?: string }> = {
   mine: { title: 'My Tickets', crumb: 'Tickets' },
   unassigned: { title: 'Unassigned', crumb: 'Tickets' },
   needs_review: { title: 'Needs Review', crumb: 'Tickets' },
+  reply_approvals: { title: 'Reply Approvals', crumb: 'Workflow' },
   analytics: { title: 'Analytics' },
   activity: { title: 'Activity Logs' },
   settings: { title: 'Settings' },
@@ -45,6 +46,7 @@ function resolveRoute(pathname: string): NavScope {
   if (pathname === '/tickets/mine') return 'mine'
   if (pathname === '/tickets/unassigned') return 'unassigned'
   if (pathname === '/tickets/needs-review') return 'needs_review'
+  if (pathname === '/approvals') return 'reply_approvals'
   if (/^\/tickets\/[^/]+$/.test(pathname)) return 'ticket_detail'
   return 'all'
 }

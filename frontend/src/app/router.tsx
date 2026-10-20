@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppLayout } from '@/components/layout'
 import { DashboardPage } from '@/features/dashboard'
 import { TicketsPage, TicketDetailPage } from '@/features/tickets'
+import { ApprovalsPage } from '@/features/approvals'
 import { PlaceholderPage } from '@/features/placeholders'
 
 /**
@@ -10,7 +11,7 @@ import { PlaceholderPage } from '@/features/placeholders'
  * Every sidebar entry resolves. Unimplemented future areas render an intentional
  * placeholder. `TicketsPage` covers All Tickets, My Tickets, Unassigned and Needs
  * Review through its `scope` prop. `/tickets/:ticketId` resolves to the interactive
- * TicketDetailPage.
+ * TicketDetailPage. `/approvals` manages customer reply human approvals.
  */
 export function AppRouter() {
   return (
@@ -24,6 +25,9 @@ export function AppRouter() {
         <Route path="/tickets/unassigned" element={<TicketsPage scope="unassigned" />} />
         <Route path="/tickets/needs-review" element={<TicketsPage scope="needs_review" />} />
         <Route path="/tickets/:ticketId" element={<TicketDetailPage />} />
+
+        {/* Reply Approvals */}
+        <Route path="/approvals" element={<ApprovalsPage />} />
 
         {/* Phase 2+ areas */}
         <Route path="/analytics" element={<PlaceholderPage area="analytics" />} />
