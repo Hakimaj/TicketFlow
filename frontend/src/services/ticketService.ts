@@ -10,6 +10,8 @@ import type {
   TicketQuery,
   TicketStatus,
 } from '@/types/ticket'
+import type { ActivityLogFacets, ActivityLogPage, ActivityLogQuery } from '@/types/activity'
+import type { AnalyticsRange, AnalyticsStats } from '@/types/analytics'
 
 /**
  * Data-access contract for tickets. Phase 1 is implemented against the
@@ -33,6 +35,19 @@ export interface TicketService {
   getTicketActivities(ticketId: string): Promise<TicketActivity[]>
   /** Everything the overview dashboard needs, derived from one dataset. */
   getDashboardStats(trendDays?: number): Promise<DashboardStats>
+
+  /* ---------------- Phase 4: Analytics & operational audit ---------------- */
+
+  /**
+   * Derived support-operations metrics. Current-state distributions are
+   * combined with time-windowed creation/resolution counts; see
+   * `AnalyticsStats` for the exact timestamp used by each figure.
+   */
+  getAnalytics(range?: AnalyticsRange): Promise<AnalyticsStats>
+  /** Sanitized, searchable activity-log projection (never raw internal content). */
+  listActivityLog(query: ActivityLogQuery): Promise<ActivityLogPage>
+  /** Distinct actors and actions present in the audit trail, with counts. */
+  getActivityLogFacets(): Promise<ActivityLogFacets>
   /** Triage mutation: update ticket status. */
   updateStatus(id: string, status: TicketStatus, agent?: Agent): Promise<Ticket>
   /** Triage mutation: update ticket priority. */

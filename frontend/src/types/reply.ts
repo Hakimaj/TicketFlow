@@ -28,6 +28,14 @@ export interface CustomerReply {
   sentByActorName: string | null
 }
 
+export const REPLY_STATES: ReplyState[] = [
+  'draft',
+  'pending_approval',
+  'approved',
+  'changes_requested',
+  'sent',
+]
+
 export const REPLY_STATE_LABELS: Record<ReplyState, string> = {
   draft: 'Draft',
   pending_approval: 'Pending Approval',

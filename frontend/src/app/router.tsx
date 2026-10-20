@@ -3,15 +3,17 @@ import { AppLayout } from '@/components/layout'
 import { DashboardPage } from '@/features/dashboard'
 import { TicketsPage, TicketDetailPage } from '@/features/tickets'
 import { ApprovalsPage } from '@/features/approvals'
-import { PlaceholderPage } from '@/features/placeholders'
+import { AnalyticsPage } from '@/features/analytics'
+import { ActivityLogsPage } from '@/features/activity'
+import { SettingsPage } from '@/features/settings'
 
 /**
  * TicketFlow application routes.
  *
- * Every sidebar entry resolves. Unimplemented future areas render an intentional
- * placeholder. `TicketsPage` covers All Tickets, My Tickets, Unassigned and Needs
- * Review through its `scope` prop. `/tickets/:ticketId` resolves to the interactive
- * TicketDetailPage. `/approvals` manages customer reply human approvals.
+ * Every sidebar entry resolves to a working screen. `TicketsPage` covers All
+ * Tickets, My Tickets, Unassigned and Needs Review through its `scope` prop.
+ * `/tickets/:ticketId` resolves to the interactive TicketDetailPage.
+ * `/approvals` manages customer reply human approvals.
  */
 export function AppRouter() {
   return (
@@ -29,14 +31,10 @@ export function AppRouter() {
         {/* Reply Approvals */}
         <Route path="/approvals" element={<ApprovalsPage />} />
 
-        {/* Phase 2+ areas */}
-        <Route path="/analytics" element={<PlaceholderPage area="analytics" />} />
-        <Route path="/activity" element={<PlaceholderPage area="activity" />} />
-        <Route path="/settings" element={<PlaceholderPage area="settings" />} />
-        <Route
-          path="/settings/profile"
-          element={<PlaceholderPage area="settings" />}
-        />
+        {/* Operational insight */}
+        <Route path="/analytics" element={<AnalyticsPage />} />
+        <Route path="/activity" element={<ActivityLogsPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
 
         {/* Fallbacks */}
         <Route path="/settings/*" element={<Navigate to="/settings" replace />} />

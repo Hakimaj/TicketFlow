@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 
 /**
@@ -28,10 +29,19 @@ export function MetricCard({
     success: 'bg-success-tint text-success',
   }[tone]
 
-  const Wrapper = hint?.href ? 'a' : hint?.onClick ? 'button' : 'div'
+  const hintClass =
+    'shrink-0 rounded px-1.5 py-1 text-xs font-medium text-primary hover:bg-primary-tint focus:outline-none'
+  const accessibleLabel =
+    typeof value === 'string' || typeof value === 'number'
+      ? `${label}: ${value}`
+      : label
 
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3.5 shadow-card">
+    <div
+      role="group"
+      aria-label={accessibleLabel}
+      className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3.5 shadow-card"
+    >
       <span
         aria-hidden="true"
         className={cn(
@@ -50,13 +60,24 @@ export function MetricCard({
         </div>
       </div>
       {hint ? (
-        <Wrapper
-          {...(hint.href ? { href: hint.href } : { type: 'button', onClick: hint.onClick })}
-          className="shrink-0 rounded px-1.5 py-1 text-xs font-medium text-primary hover:bg-primary-tint focus:outline-none"
-          {...(Wrapper === 'div' ? {} : { 'aria-label': hint.text })}
-        >
-          {hint.text}
-        </Wrapper>
+        hint.href?.startsWith('/') ? (
+          <Link to={hint.href} className={hintClass} aria-label={hint.text}>
+            {hint.text}
+          </Link>
+        ) : hint.href ? (
+          <a href={hint.href} className={hintClass} aria-label={hint.text}>
+            {hint.text}
+          </a>
+        ) : (
+          <button
+            type="button"
+            onClick={hint.onClick}
+            className={hintClass}
+            aria-label={hint.text}
+          >
+            {hint.text}
+          </button>
+        )
       ) : null}
     </div>
   )

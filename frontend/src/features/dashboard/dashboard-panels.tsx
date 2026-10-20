@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import type { ActivityAction, DashboardStats } from '@/types/ticket'
 import { formatRelativeTime } from '@/lib/format'
+import { ACTIVITY_ACTION_LABELS } from '@/lib/activity-config'
 import { StatusBadge, PriorityBadge } from '@/components/shared/ticket-badges'
 import {
   Table,
@@ -130,22 +131,22 @@ export function PrioritySummary({
 
 /* ----------------------------- Recent activity ----------------------------- */
 
-const ACTIVITY_META: Record<ActivityAction, { icon: ElementType; label: string }> = {
-  created: { icon: CircleDot, label: 'Created' },
-  categorized: { icon: Shuffle, label: 'Categorized' },
-  assigned: { icon: UserPlus, label: 'Assigned' },
-  replied_draft: { icon: PencilLine, label: 'Draft reply' },
-  replied_sent: { icon: Send, label: 'Reply sent' },
-  status_changed: { icon: Shuffle, label: 'Status changed' },
-  escalated: { icon: BellRing, label: 'Escalated' },
-  review_flagged: { icon: BellRing, label: 'Flagged for review' },
-  merged: { icon: Shuffle, label: 'Merged' },
-  resolved: { icon: CheckCircle2, label: 'Resolved' },
-  priority_changed: { icon: ArrowUpDown, label: 'Priority changed' },
-  note_added: { icon: MessageSquare, label: 'Internal note' },
-  reply_submitted: { icon: Send, label: 'Reply submitted' },
-  reply_approved: { icon: CheckCircle2, label: 'Reply approved' },
-  reply_changes_requested: { icon: AlertTriangle, label: 'Changes requested' },
+const ACTIVITY_ICONS: Record<ActivityAction, ElementType> = {
+  created: CircleDot,
+  categorized: Shuffle,
+  assigned: UserPlus,
+  replied_draft: PencilLine,
+  replied_sent: Send,
+  status_changed: Shuffle,
+  escalated: BellRing,
+  review_flagged: BellRing,
+  merged: Shuffle,
+  resolved: CheckCircle2,
+  priority_changed: ArrowUpDown,
+  note_added: MessageSquare,
+  reply_submitted: Send,
+  reply_approved: CheckCircle2,
+  reply_changes_requested: AlertTriangle,
 }
 
 export function RecentActivity({
@@ -156,8 +157,13 @@ export function RecentActivity({
   return (
     <ol className="space-y-3 px-4 pb-4">
       {activity.map((event) => {
-        const meta = ACTIVITY_META[event.action]
-        const Icon = meta?.icon ?? CircleDot
+        const Icon = ACTIVITY_ICONS[event.action] ?? CircleDot
+        const label = ACTIVITY_ACTION_LABELS[event.action]
+        const safeDetail =
+          event.action === 'note_added' ||
+          event.action === 'reply_changes_requested'
+            ? null
+            : event.detail
         return (
           <li key={event.id} className="flex gap-2.5">
             <span
@@ -182,14 +188,14 @@ export function RecentActivity({
             </span>
             <div className="min-w-0">
               <p className="text-sm leading-snug">
-                <span className="font-medium text-foreground">{meta.label}</span>{' '}
+                <span className="font-medium text-foreground">{label}</span>{' '}
                 <span className="font-mono text-xs text-muted-foreground">{event.ticketId}</span>
                 <span className="text-muted-foreground"> — {event.actorName}</span>
                 <span className="text-xs text-subtle-foreground"> · {formatRelativeTime(event.createdAt)}</span>
               </p>
-              {event.detail ? (
-                <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground" title={event.detail}>
-                  {event.detail}
+              {safeDetail ? (
+                <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground" title={safeDetail}>
+                  {safeDetail}
                 </p>
               ) : null}
             </div>

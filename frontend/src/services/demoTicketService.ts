@@ -20,9 +20,21 @@ import {
   PRIORITY_RANK,
   STATUS_LABELS,
   TEAM_LABELS,
+  TICKET_CATEGORIES,
+  TICKET_PRIORITIES,
   TICKET_STATUSES,
 } from '@/lib/ticket-config'
 import { dayKey } from '@/lib/format'
+import { ACTIVITY_ACTION_LABELS } from '@/lib/activity-config'
+import { REPLY_STATES } from '@/types/reply'
+import type {
+  ActivityLogEntry,
+  ActivityLogFacets,
+  ActivityLogPage,
+  ActivityLogQuery,
+  ActivityRange,
+} from '@/types/activity'
+import type { AnalyticsRange, AnalyticsStats } from '@/types/analytics'
 import {
   DEMO_ACTIVITY,
   DEMO_AGENTS,
@@ -45,6 +57,72 @@ const SIMULATED_LATENCY_MS = 280
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+const DAY_MS = 86_400_000
+
+function startOfDay(date: Date): Date {
+  const copy = new Date(date)
+  copy.setHours(0, 0, 0, 0)
+  return copy
+}
+
+/**
+ * Inclusive start of an analytics/activity window. For `'all'` it is the
+ * local midnight of the earliest supplied timestamp.
+ */
+function windowStart(
+  range: AnalyticsRange | ActivityRange,
+  earliestIso: string,
+  now = new Date(),
+): Date {
+  if (range === 'all') return startOfDay(new Date(earliestIso))
+  const start = startOfDay(now)
+  start.setDate(start.getDate() - (range - 1))
+  return start
+}
+
+/**
+ * Privacy-safe projection of a ticket activity record for the general audit
+ * log. Internal note bodies, reply drafts and reviewer comments are replaced
+ * with operation summaries; the original records remain available to the
+ * ticket/review surfaces that are meant to show them.
+ */
+function summarizeActivity(activity: TicketActivity): string {
+  switch (activity.action) {
+    // Content-bearing events never reuse the stored detail, which may contain
+    // internal note text, reply drafts or reviewer feedback.
+    case 'note_added':
+      return 'Internal note added to the ticket.'
+    case 'replied_draft':
+      return 'Customer reply draft saved.'
+    case 'reply_submitted':
+      return 'Customer reply submitted for supervisor approval.'
+    case 'reply_approved':
+      return 'Customer reply approved for demo sending.'
+    case 'reply_changes_requested':
+      return 'Changes requested on the customer reply draft.'
+    case 'replied_sent':
+      return 'Customer reply marked as sent in demo mode.'
+
+    // Operational events are written by the service and contain only routing
+    // metadata (status/priority labels, team names), never customer content.
+    case 'created':
+    case 'categorized':
+    case 'assigned':
+    case 'status_changed':
+    case 'escalated':
+    case 'review_flagged':
+    case 'merged':
+    case 'resolved':
+    case 'priority_changed':
+      return activity.detail?.trim() || ACTIVITY_ACTION_LABELS[activity.action]
+
+    default:
+      // Unknown/future action types fall back to the shared label only, so a
+      // new event shape can never leak its raw detail through this projection.
+      return ACTIVITY_ACTION_LABELS[activity.action] ?? 'Ticket activity recorded.'
+  }
 }
 
 /** Case-insensitive "contains" search across the searchable fields. */
@@ -423,6 +501,7 @@ export class DemoTicketService implements TicketService {
   /** Internal: append an audit event for a reply workflow transition. */
   private recordReplyActivity(
     ticketId: string,
+    replyId: string,
     actorName: string,
     action: ActivityAction,
     detail: string,
@@ -430,6 +509,7 @@ export class DemoTicketService implements TicketService {
     this.activities.push({
       id: `ACT-${Date.now()}-${this.activitySequence++}`,
       ticketId,
+      replyId,
       actorName,
       actorType: 'agent',
       action,
@@ -508,6 +588,7 @@ export class DemoTicketService implements TicketService {
               : 'The reply was revised after reviewer feedback'
         this.recordReplyActivity(
           ticketId,
+          reply.id,
           author.name,
           'replied_draft',
           `Customer reply revised to v${reply.version} by ${author.name}. ${reason}; it must be resubmitted for approval before it can be sent.`,
@@ -515,6 +596,7 @@ export class DemoTicketService implements TicketService {
       } else {
         this.recordReplyActivity(
           ticketId,
+          reply.id,
           author.name,
           'replied_draft',
           `Customer reply draft (v${reply.version}) updated by ${author.name}.`,
@@ -543,6 +625,7 @@ export class DemoTicketService implements TicketService {
 
       this.recordReplyActivity(
         ticketId,
+        reply.id,
         author.name,
         'replied_draft',
         `Customer reply draft started by ${author.name}.`,
@@ -596,6 +679,7 @@ export class DemoTicketService implements TicketService {
 
     this.recordReplyActivity(
       reply.ticketId,
+      reply.id,
       author.name,
       'reply_submitted',
       wasChangesRequested
@@ -636,6 +720,7 @@ export class DemoTicketService implements TicketService {
 
     this.recordReplyActivity(
       reply.ticketId,
+      reply.id,
       reviewer.name,
       'reply_approved',
       `Customer reply (v${reply.version}) approved by ${reviewer.name}. The reply is ready to send.`,
@@ -681,6 +766,7 @@ export class DemoTicketService implements TicketService {
 
     this.recordReplyActivity(
       reply.ticketId,
+      reply.id,
       reviewer.name,
       'reply_changes_requested',
       `Changes requested on reply (v${reply.version}) by ${reviewer.name}. Internal feedback: "${trimmed}"`,
@@ -724,6 +810,7 @@ export class DemoTicketService implements TicketService {
 
     this.recordReplyActivity(
       reply.ticketId,
+      reply.id,
       actor.name,
       'replied_sent',
       `Customer reply (v${reply.version}) marked as sent in demo mode by ${actor.name}. No external message was transmitted.`,
@@ -738,6 +825,7 @@ export class DemoTicketService implements TicketService {
 
       this.recordReplyActivity(
         ticket.id,
+        reply.id,
         actor.name,
         'status_changed',
         `Status updated from ${STATUS_LABELS[previousStatus]} to ${STATUS_LABELS.pending} after the customer reply was sent.`,
@@ -746,6 +834,226 @@ export class DemoTicketService implements TicketService {
 
     this.notify()
     return { ...reply }
+  }
+
+  /* ---------------- Phase 4: Analytics & operational audit ---------------- */
+
+  /** Earliest ticket creation timestamp, used for the `'all'` window. */
+  private earliestTicketIso(): string {
+    let earliest = new Date().toISOString()
+    for (const ticket of this.tickets) {
+      if (new Date(ticket.createdAt).getTime() < new Date(earliest).getTime()) {
+        earliest = ticket.createdAt
+      }
+    }
+    return earliest
+  }
+
+  async getAnalytics(range: AnalyticsRange = 30): Promise<AnalyticsStats> {
+    await delay(SIMULATED_LATENCY_MS)
+    if (range !== 7 && range !== 30 && range !== 'all') {
+      throw new TicketServiceError(`Unsupported analytics range: ${String(range)}.`)
+    }
+
+    const all = this.tickets
+    const replies = this.replies
+    const now = new Date()
+    const start = windowStart(range, this.earliestTicketIso(), now)
+    const startMs = start.getTime()
+    const inWindow = (iso: string | null): boolean =>
+      Boolean(iso) && new Date(iso as string).getTime() >= startMs
+
+    const active = all.filter((t) => ACTIVE_STATUSES.includes(t.status))
+    const createdInRange = all.filter((t) => inWindow(t.createdAt))
+    const sentRepliesInRange = replies.filter(
+      (r) => r.state === 'sent' && inWindow(r.sentAt),
+    )
+    const repliesCreatedInRange = replies.filter((r) => inWindow(r.createdAt))
+
+    /* ------------------------- daily trend ------------------------- */
+    const dayBuckets = new Map<string, { created: number; resolved: number }>()
+    const end = startOfDay(now)
+    for (
+      let cursor = new Date(start);
+      cursor.getTime() <= end.getTime();
+      cursor = new Date(cursor.getTime() + DAY_MS)
+    ) {
+      dayBuckets.set(dayKey(cursor), { created: 0, resolved: 0 })
+    }
+
+    for (const ticket of all) {
+      const createdKey = dayKey(new Date(ticket.createdAt))
+      const createdBucket = dayBuckets.get(createdKey)
+      if (createdBucket && inWindow(ticket.createdAt)) {
+        createdBucket.created += 1
+      }
+      if (ticket.status === 'resolved' || ticket.status === 'closed') {
+        const resolvedBucket = dayBuckets.get(dayKey(new Date(ticket.updatedAt)))
+        if (resolvedBucket && inWindow(ticket.updatedAt)) {
+          resolvedBucket.resolved += 1
+        }
+      }
+    }
+
+    const volumeTrend = [...dayBuckets.entries()].map(([date, counts]) => ({
+      date,
+      ...counts,
+    }))
+
+    /* ---------------------- current distributions ---------------------- */
+    const statusDistribution = TICKET_STATUSES.map((status) => ({
+      status,
+      count: all.filter((t) => t.status === status).length,
+    }))
+
+    const categoryDistribution = TICKET_CATEGORIES.map((category) => ({
+      category,
+      count: active.filter((t) => t.category === category).length,
+    }))
+
+    const priorityDistribution = TICKET_PRIORITIES.map((priority) => ({
+      priority,
+      count: active.filter((t) => t.priority === priority).length,
+    }))
+
+    const workloadMap = new Map<
+      string,
+      { agentId: string | null; agentName: string; count: number }
+    >()
+    for (const ticket of active) {
+      const key = ticket.assignedAgentId ?? '__unassigned'
+      const existing = workloadMap.get(key)
+      if (existing) {
+        existing.count += 1
+      } else {
+        workloadMap.set(key, {
+          agentId: ticket.assignedAgentId,
+          agentName: ticket.assignedAgentId
+            ? (DEMO_AGENTS_BY_ID.get(ticket.assignedAgentId)?.name ?? 'Unknown agent')
+            : 'Unassigned',
+          count: 1,
+        })
+      }
+    }
+    const agentWorkload = [...workloadMap.values()].sort(
+      (a, b) => b.count - a.count || a.agentName.localeCompare(b.agentName),
+    )
+
+    const replyStateDistribution = REPLY_STATES.map((state) => ({
+      state,
+      count: replies.filter((r) => r.state === state).length,
+    }))
+
+    return {
+      range,
+      rangeStart: start.toISOString(),
+      generatedAt: now.toISOString(),
+      totalTickets: all.length,
+      ticketsCreatedInRange: createdInRange.length,
+      activeTickets: active.length,
+      unassignedTickets: active.filter((t) => t.assignedAgentId === null).length,
+      urgentHighTickets: active.filter(
+        (t) => t.priority === 'urgent' || t.priority === 'high',
+      ).length,
+      needsReviewTickets: all.filter((t) => t.status === 'needs_review').length,
+      pendingReplyApprovals: replies.filter((r) => r.state === 'pending_approval').length,
+      repliesCreatedInRange: repliesCreatedInRange.length,
+      sentRepliesInRange: sentRepliesInRange.length,
+      totalReplies: replies.length,
+      statusDistribution,
+      categoryDistribution,
+      priorityDistribution,
+      agentWorkload,
+      replyStateDistribution,
+      volumeTrend,
+    }
+  }
+
+  async listActivityLog(query: ActivityLogQuery): Promise<ActivityLogPage> {
+    await delay(SIMULATED_LATENCY_MS)
+
+    const range = query.range ?? 'all'
+    let earliest = new Date().toISOString()
+    for (const activity of this.activities) {
+      if (new Date(activity.createdAt).getTime() < new Date(earliest).getTime()) {
+        earliest = activity.createdAt
+      }
+    }
+    const startMs = windowStart(range, earliest).getTime()
+
+    let entries: ActivityLogEntry[] = this.activities
+      .filter((activity) => new Date(activity.createdAt).getTime() >= startMs)
+      .map((activity) => ({
+        id: activity.id,
+        ticketId: activity.ticketId,
+        replyId: activity.replyId ?? null,
+        actorName: activity.actorName,
+        actorType: activity.actorType,
+        action: activity.action,
+        summary: summarizeActivity(activity),
+        createdAt: activity.createdAt,
+      }))
+
+    const needle = query.search?.trim().toLowerCase()
+    if (needle) {
+      entries = entries.filter((entry) =>
+        [
+          entry.ticketId,
+          entry.actorName,
+          ACTIVITY_ACTION_LABELS[entry.action],
+          entry.summary,
+        ]
+          .join(' ')
+          .toLowerCase()
+          .includes(needle),
+      )
+    }
+    if (query.actions && query.actions.length > 0) {
+      const allowed = new Set(query.actions)
+      entries = entries.filter((entry) => allowed.has(entry.action))
+    }
+    if (query.actorName) {
+      entries = entries.filter((entry) => entry.actorName === query.actorName)
+    }
+
+    const dir = query.sortDir ?? 'desc'
+    entries.sort((a, b) => {
+      const diff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      if (diff !== 0) return dir === 'asc' ? diff : -diff
+      return a.id.localeCompare(b.id)
+    })
+
+    const pageSize = Math.min(100, Math.max(1, query.pageSize))
+    const total = entries.length
+    const pageCount = Math.max(1, Math.ceil(total / pageSize))
+    const page = Math.min(Math.max(1, query.page), pageCount)
+    const items = entries.slice((page - 1) * pageSize, page * pageSize)
+
+    return { items, total, page, pageSize, pageCount }
+  }
+
+  async getActivityLogFacets(): Promise<ActivityLogFacets> {
+    await delay(40)
+    const actorCounts = new Map<string, number>()
+    const actionCounts = new Map<ActivityAction, number>()
+
+    for (const activity of this.activities) {
+      actorCounts.set(activity.actorName, (actorCounts.get(activity.actorName) ?? 0) + 1)
+      actionCounts.set(activity.action, (actionCounts.get(activity.action) ?? 0) + 1)
+    }
+
+    return {
+      actors: [...actorCounts.entries()]
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
+      actions: [...actionCounts.entries()]
+        .map(([action, count]) => ({ action, count }))
+        .sort(
+          (a, b) =>
+            b.count - a.count ||
+            ACTIVITY_ACTION_LABELS[a.action].localeCompare(ACTIVITY_ACTION_LABELS[b.action]),
+        ),
+    }
   }
 
   async getDashboardStats(trendDays = 30): Promise<DashboardStats> {

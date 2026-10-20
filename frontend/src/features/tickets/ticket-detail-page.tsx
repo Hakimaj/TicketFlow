@@ -104,6 +104,11 @@ export function TicketDetailPage() {
   } | null>(null)
 
   const returnTo = (location.state as { returnTo?: string })?.returnTo ?? '/tickets'
+  const returnLabel = returnTo.startsWith('/activity')
+    ? 'Activity Logs'
+    : returnTo.startsWith('/approvals')
+      ? 'Reply Approvals'
+      : 'Tickets'
 
   const showFeedback = React.useCallback(
     (message: string, type: 'success' | 'error' = 'success') => {
@@ -333,7 +338,7 @@ export function TicketDetailPage() {
           className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-3.5" aria-hidden="true" />
-          Back to tickets
+          Back to {returnLabel}
         </Link>
         <ErrorState
           title="Ticket could not be loaded"
@@ -354,7 +359,7 @@ export function TicketDetailPage() {
             <Button variant="outline" size="sm" asChild>
               <Link to={returnTo}>
                 <ArrowLeft aria-hidden="true" />
-                Back to tickets
+                Back to {returnLabel}
               </Link>
             </Button>
           }
@@ -380,7 +385,7 @@ export function TicketDetailPage() {
               className="inline-flex items-center gap-1 font-medium transition-colors hover:text-foreground hover:underline"
             >
               <ArrowLeft className="size-3" aria-hidden="true" />
-              Tickets
+              {returnLabel}
             </Link>
             <span aria-hidden="true" className="text-subtle-foreground">
               /
@@ -440,7 +445,7 @@ export function TicketDetailPage() {
           <Button variant="outline" size="sm" asChild>
             <Link to={returnTo}>
               <ArrowLeft className="size-3.5" aria-hidden="true" />
-              Back to tickets
+              Back to {returnLabel}
             </Link>
           </Button>
         </div>

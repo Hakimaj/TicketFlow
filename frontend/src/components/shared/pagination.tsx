@@ -12,6 +12,8 @@ export function Pagination({
   total,
   pageSize,
   onPageChange,
+  itemLabel = 'tickets',
+  ariaLabel = 'Ticket pages',
   className,
 }: {
   page: number
@@ -19,6 +21,8 @@ export function Pagination({
   total: number
   pageSize: number
   onPageChange: (page: number) => void
+  itemLabel?: string
+  ariaLabel?: string
   className?: string
 }) {
   if (total === 0) return null
@@ -38,7 +42,7 @@ export function Pagination({
 
   return (
     <nav
-      aria-label="Ticket pages"
+      aria-label={ariaLabel}
       className={cn(
         'flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-2.5',
         className,
@@ -46,7 +50,7 @@ export function Pagination({
     >
       <p aria-live="polite" className="text-xs text-muted-foreground">
         Showing <span className="font-medium text-foreground">{from}–{to}</span> of{' '}
-        <span className="font-medium text-foreground">{total}</span> tickets
+        <span className="font-medium text-foreground">{total}</span> {itemLabel}
       </p>
       <div className="flex items-center gap-1">
         <Button

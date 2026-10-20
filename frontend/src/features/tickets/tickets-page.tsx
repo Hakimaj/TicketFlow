@@ -43,12 +43,12 @@ import {
   type TicketQueueScope,
 } from './use-tickets'
 import { TicketTable } from './ticket-table'
+import { useAgents } from './use-agents'
 
 const SCOPE_META: Record<
   TicketQueueScope,
   { title: string; description: string }
-> = {
-  all: {
+> = {  all: {
     title: 'All Tickets',
     description:
       'Every ticket in the queue — search, filter and triage from here.',
@@ -70,6 +70,22 @@ const SCOPE_META: Record<
 }
 
 /**
+ * Reads a comma-separated facet list from the URL, discarding unknown values.
+ * Enables analytics cards and external links to open a correctly filtered queue.
+ */
+function readListParam<T extends string>(
+  params: URLSearchParams,
+  key: string,
+  allowed: readonly T[],
+): T[] {
+  const allowedSet = new Set<string>(allowed)
+  return (params.get(key) ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value): value is T => allowedSet.has(value))
+}
+
+/**
  * Search-filter-sort-paginate view over the ticket dataset. All data flows
  * through the TicketService interface; nothing here knows about fixtures.
  */
@@ -79,6 +95,9 @@ export function TicketsPage({ scope }: { scope: TicketQueueScope }) {
   const [facets, setFacets] = React.useState<TicketFacets>(() => ({
     ...EMPTY_FACETS,
     search: searchParams.get('q') ?? '',
+    statuses: readListParam(searchParams, 'status', TICKET_STATUSES),
+    categories: readListParam(searchParams, 'category', TICKET_CATEGORIES),
+    priorities: readListParam(searchParams, 'priority', TICKET_PRIORITIES),
   }))
   const [sortBy, setSortBy] = React.useState<TicketSortField>('createdAt')
   const [sortDir, setSortDir] = React.useState<'asc' | 'desc'>('desc')
@@ -95,11 +114,19 @@ export function TicketsPage({ scope }: { scope: TicketQueueScope }) {
     setPage(1)
   }, [searchParams])
 
-  /** Reflect the local search box into the URL without navigating. */
-  const writeSearchParam = React.useCallback((value: string) => {
+  /** Reflect the current facets into the URL without navigating. */
+  const writeFacets = React.useCallback((next: TicketFacets) => {
     const url = new URL(window.location.href)
-    if (value.trim()) url.searchParams.set('q', value.trim())
+    const writeList = (key: string, values: readonly string[]) => {
+      if (values.length > 0) url.searchParams.set(key, values.join(','))
+      else url.searchParams.delete(key)
+    }
+    const search = next.search.trim()
+    if (search) url.searchParams.set('q', search)
     else url.searchParams.delete('q')
+    writeList('status', next.statuses)
+    writeList('category', next.categories)
+    writeList('priority', next.priorities)
     const qs = url.searchParams.toString()
     window.history.replaceState(
       null,
@@ -110,6 +137,7 @@ export function TicketsPage({ scope }: { scope: TicketQueueScope }) {
 
   const { data, loading, error, errorSimulated, setErrorSimulated, refetch } =
     useTickets(scope, facets, sortBy, sortDir, page)
+  const agents = useAgents()
 
   const activeFilters = hasActiveFacets(facets)
   const activeGroups = [
@@ -120,15 +148,18 @@ export function TicketsPage({ scope }: { scope: TicketQueueScope }) {
   ].filter(Boolean).length
 
   function setFacet<K extends keyof TicketFacets>(key: K, value: TicketFacets[K]) {
-    setFacets((f) => ({ ...f, [key]: value }))
+    setFacets((f) => {
+      const next = { ...f, [key]: value }
+      writeFacets(next)
+      return next
+    })
     setPage(1)
-    if (key === 'search') writeSearchParam(value as string)
   }
 
   function clearFilters() {
     setFacets(EMPTY_FACETS)
     setPage(1)
-    writeSearchParam('')
+    writeFacets(EMPTY_FACETS)
   }
 
   function handleSort(field: TicketSortField) {
@@ -376,6 +407,7 @@ export function TicketsPage({ scope }: { scope: TicketQueueScope }) {
           <>
             <TicketTable
               tickets={data.items}
+              agents={agents}
               sortBy={sortBy}
               sortDir={sortDir}
               onSort={handleSort}

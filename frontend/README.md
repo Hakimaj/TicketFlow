@@ -1,4 +1,4 @@
-# TicketFlow frontend (Phase 3)
+# TicketFlow frontend (Phase 4)
 
 Support-ticket workspace built with React 19, TypeScript (strict), Vite 7,
 Tailwind CSS 4, shadcn/ui-style components (Radix primitives + CVA),
@@ -16,16 +16,22 @@ Quality gates (all passing):
 ```bash
 npm run lint
 npm run typecheck
-npm test          # Vitest domain tests for the reply approval workflow
+npm test          # Vitest domain tests (workflow, analytics, activity, preferences)
 npm run build
+npm run test:e2e  # Playwright browser tests (uses locally installed Google Chrome)
 npm run preview   # serve dist/ at http://localhost:4173
 ```
+
+The Playwright config starts Vite on port `4173` and uses the installed Chrome
+channel, so no browser binary download is required. Set
+`PLAYWRIGHT_BROWSERS_PATH` or adjust `playwright.config.ts` if Chrome is not
+installed locally.
 
 ## Architecture
 
 ```
 src/
-  app/                  App wiring (router)
+  app/                  App wiring, router, preferences provider, start page
   components/
     layout/             Sidebar, top header, app shell, nav config
     shared/             Cross-feature building blocks: badges, metric card,
@@ -39,14 +45,18 @@ src/
                         table, filters hook, interactive ticket detail,
                         internal notes, reply composer
     approvals/          Reply Approvals supervisor review queue
-    placeholders/       Announced future areas (analytics, activity, settings)
+    analytics/          Derived analytics page, charts, range-aware hook
+    activity/           Sanitized activity log, filters, facets, hook
+    settings/           Demo profile, local preferences, workflow reference
   types/                Domain models (Ticket, Agent, TicketActivity,
-                        CustomerReply, queries)
+                        CustomerReply, queries, analytics, activity log)
   data/                 Demonstration fixtures (separate from UI/services),
                         including demo replies in `demo-replies.ts`
   services/             TicketService interface + DemoTicketService
                         implementation + reserved HTTP client placeholder
-  lib/                  cn(), formatting, ticket config maps, reply templates
+  lib/                  cn(), formatting, ticket/activity config maps, shared
+                        chart colors, reply templates, preference validation
+e2e/                    Playwright browser workflows
 ```
 
 Key rules enforced by this structure:
@@ -55,9 +65,10 @@ Key rules enforced by this structure:
   (`src/services/index.ts` resolves a `DemoTicketService` today; a later phase
   swaps the implementation for HTTP calls behind the same interface).
 - Mock data lives exclusively in `src/data/`; no component carries ticket or
-  reply fixtures.
-- Dashboard numbers, including the pending-approval counter, are derived from
-  the dataset inside the service — never hardcoded in UI.
+  reply fixtures. Assignee names come from `listAgents()`.
+- Dashboard numbers, analytics, activity facets and the pending-approval
+  counters are derived inside the service — never hardcoded in UI and never
+  read from fixture arrays in components.
 - Status and priority are separate typed unions; badges always pair an icon
   with text so color is never the only signal.
 - The demo user (`Abebe Kebede`) is labelled as a demo user in the UI. No
@@ -93,7 +104,53 @@ transitions (double submit, approving a draft, sending twice, requesting
 changes without feedback) throw `TicketServiceError`.
 
 State changes publish through `TicketService.subscribe`, so the sidebar badge,
-dashboard banner and approvals queue refresh without a page reload.
+dashboard banner, approvals queue, analytics and activity log refresh without a
+page reload.
+
+## Analytics
+
+`/analytics` reads `ticketService.getAnalytics(range)` for 7 days, 30 days or
+all data. It does not import fixtures or invent KPIs.
+
+- Windowed metrics: tickets created, replies created, demo-sent replies.
+- Current-state metrics: active workload, unassigned active, urgent/high
+  active, ticket-level Needs Review, replies awaiting approval.
+- Charts: daily ticket volume (created vs resolved/closed), status, priority,
+  category, reply approval state and agent workload.
+- Timestamp semantics: `Ticket.createdAt` for creation, `Reply.createdAt` for
+  reply creation, `Reply.sentAt` for demo sends, and terminal-ticket
+  `updatedAt` as an explicitly labelled resolution-time proxy.
+- No SLA, resolution-duration, CSAT, revenue or historical snapshot data
+  exists in the demo, so none is displayed.
+- Ticket-level Needs Review is kept separate from reply approval everywhere.
+
+## Activity Logs
+
+`/activity` reads the sanitized `ActivityLogEntry` projection from
+`listActivityLog(query)` and `getActivityLogFacets()`.
+
+- Search matches ticket ID, actor, action label or the safe summary only.
+- Filters: action, actor, date range; sort newest/oldest; pagination; clear.
+- Ticket IDs link to the existing ticket detail page and return to the log.
+- Reply events include the reply ID.
+- Internal note bodies, customer-facing drafts, reviewer feedback and customer
+  email addresses never appear in the general log. The same records still power
+  the ticket timeline, where internal context belongs.
+
+## Settings
+
+`/settings` shows the demo profile and explicitly states that it is not an
+authenticated account. Two preferences are genuinely applied and stored only in
+this browser under `ticketflow.preferences.v1`:
+
+- table density (`comfortable` / `compact`) via `data-density` on `<html>`;
+- default landing page, applied when the app starts at `/` in a new tab/reload.
+
+Values are validated on read; unknown values fall back to defaults, and **Reset
+preferences** restores them. The workflow reference is derived from the domain
+maps in `src/lib/ticket-config.ts` and `src/types/reply.ts`. The integration
+status section is read-only and honest: there are no dead Save, Connect or Test
+buttons.
 
 ## Demonstration dataset
 
@@ -101,19 +158,31 @@ dashboard banner and approvals queue refresh without a page reload.
 tickets from a seeded generator (fixed PRNG), so trend charts span 30 days
 while staying deterministic. `src/data/demo-replies.ts` seeds replies in
 pending, approved, changes-requested and sent states so the approval queue is
-not empty on first load. Timestamps are generated relative to app start so
-relative dates remain sensible; nothing refreshes fake-live.
+not empty on first load. `src/data/demo-activity.ts` contains matching audit
+events, including reply-linked submitted/approved/changes-requested/sent
+records. Timestamps are generated relative to app start so relative dates remain
+sensible; nothing refreshes fake-live.
 
 ## Tests
 
-`src/services/__tests__/reply-workflow.test.ts` exercises the domain service
-directly: the happy path, every invalid transition, approval-gate bypass
-attempts, revision/version bumps, stale-approval invalidation, dashboard
-counts, subscriber notifications and separation of customer replies from
-internal notes.
+- `src/services/__tests__/reply-workflow.test.ts` covers the happy path, every
+  invalid transition, approval-gate bypass attempts, revision/version bumps,
+  stale-approval invalidation, dashboard counts, subscriber notifications and
+  separation of customer replies from internal notes.
+- `src/services/__tests__/analytics-activity.test.ts` verifies analytics
+  derivations, window semantics, current-state distinction, activity privacy,
+  filtering, sorting, pagination and facets.
+- `src/lib/__tests__/preferences.test.ts` verifies preference validation and
+  safe fallbacks.
+- `e2e/app.spec.ts` runs seven real browser workflows: navigation/active
+  state, analytics range/metric links, analytics + activity propagation after
+  a triage edit, activity search/filter/privacy, settings persistence and start
+  page, the full ticket → reply → approve → demo-send flow (including live
+  sidebar counters), and mobile navigation/overflow.
 
 ```bash
 npm test
+npm run test:e2e
 ```
 
 ## Demo controls
@@ -132,8 +201,11 @@ demo affordance, clearly labelled as one.
 - Approval actions use the single demo supervisor identity. Distinct reviewer
   accounts and role-based permissions arrive with a real backend.
 - Ticket creation (New Ticket) remains an explicitly labelled preview dialog.
-- Analytics, Activity Logs and Settings pages are placeholders that state
-  their delivery phase.
-- Verification used type-check, lint, Vitest, a production build and HTTP
-  smoke checks of the preview server. Browser-based visual and interaction
-  testing was not available in this environment.
+- Analytics and activity calculations run in the browser against demo records;
+  there are no stored historical snapshots.
+- Verification includes type-check, lint, 39 Vitest tests, a production build
+  and 7 Playwright tests in Google Chrome. Visual regression testing is not
+  included.
+
+See `../docs/frontend-backend-integration.md` for the existing service contract,
+state rules and clearly labelled proposals for future backend work.

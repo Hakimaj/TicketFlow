@@ -66,9 +66,8 @@ function NewTicketDialog({
         <DialogHeader>
           <DialogTitle>Create a new ticket</DialogTitle>
           <DialogDescription>
-            Ticket intake opens in Phase 2, when the TicketFlow API is
-            connected. The form below is a preview — nothing is submitted in
-            this phase.
+            New-ticket intake is not part of this demo frontend. It will arrive
+            with the backend integration; this preview does not submit anything.
           </DialogDescription>
         </DialogHeader>
         <div aria-hidden="true" className="space-y-3 opacity-50">

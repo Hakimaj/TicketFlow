@@ -1,25 +1,14 @@
 import { formatShortDate } from '@/lib/format'
 import { CATEGORY_LABELS, CATEGORY_TEAM, TEAM_LABELS } from '@/lib/ticket-config'
-import type { DashboardStats, TicketCategory } from '@/types/ticket'
+import { CATEGORY_COLORS } from '@/lib/chart-colors'
+import type { DashboardStats } from '@/types/ticket'
+
+export { CATEGORY_COLORS, TREND_COLORS } from '@/lib/chart-colors'
 
 /**
  * Shared chart palette and tooltip helpers. Original TicketFlow palette:
  * one blue-teal family plus neutral support colors — no rainbow charts.
  */
-
-export const TREND_COLORS = {
-  received: 'var(--primary)',
-  resolved: '#0d9488', // teal-600, restrained complement
-} as const
-
-// eslint-disable-next-line react-refresh/only-export-components -- palette constants are only used with these chart components
-export const CATEGORY_COLORS: Record<TicketCategory, string> = {
-  billing: '#2563eb', // primary blue
-  delivery: '#0d9488', // teal
-  technical: '#7c3aed', // muted violet
-  returns: '#d97706', // amber
-  general: '#64748b', // slate
-}
 
 export function TrendTooltip({
   active,

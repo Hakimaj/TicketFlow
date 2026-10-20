@@ -1,10 +1,9 @@
 import * as React from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { ArrowDown, ArrowUpDown, ArrowUp } from 'lucide-react'
-import type { Ticket, TicketSortField } from '@/types/ticket'
+import type { Agent, Ticket, TicketSortField } from '@/types/ticket'
 import { CATEGORY_LABELS, SORT_FIELD_LABELS, TEAM_LABELS } from '@/lib/ticket-config'
 import { formatRelativeTime, formatDate } from '@/lib/format'
-import { DEMO_AGENTS_BY_ID } from '@/data'
 import { CategoryBadge, PriorityBadge, StatusBadge } from '@/components/shared/ticket-badges'
 import {
   Table,
@@ -23,9 +22,12 @@ import { cn } from '@/lib/utils'
  * progressively on smaller screens instead of shrinking to unreadable.
  */
 
-function assigneeLabel(ticket: Ticket): { text: string; muted: boolean } {
+function assigneeLabel(
+  ticket: Ticket,
+  agentsById: Map<string, Agent>,
+): { text: string; muted: boolean } {
   if (ticket.assignedAgentId) {
-    const name = DEMO_AGENTS_BY_ID.get(ticket.assignedAgentId)?.name
+    const name = agentsById.get(ticket.assignedAgentId)?.name
     if (name) return { text: name, muted: false }
   }
   if (ticket.assignedTeam) {
@@ -84,11 +86,13 @@ function SortHeader({
 
 export function TicketTable({
   tickets,
+  agents,
   sortBy,
   sortDir,
   onSort,
 }: {
   tickets: Ticket[]
+  agents: Agent[]
   sortBy: TicketSortField
   sortDir: 'asc' | 'desc'
   onSort: (field: TicketSortField) => void
@@ -96,6 +100,10 @@ export function TicketTable({
   const navigate = useNavigate()
   const location = useLocation()
   const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set())
+  const agentsById = React.useMemo(
+    () => new Map(agents.map((agent) => [agent.id, agent])),
+    [agents],
+  )
 
   const allSelected = tickets.length > 0 && tickets.every((t) => selected.has(t.id))
   const someSelected = selected.size > 0 && !allSelected
@@ -169,7 +177,7 @@ export function TicketTable({
       <TableBody>
         {tickets.map((ticket) => {
           const isSelected = selected.has(ticket.id)
-          const assignee = assigneeLabel(ticket)
+          const assignee = assigneeLabel(ticket, agentsById)
           return (
             <TableRow
               key={ticket.id}

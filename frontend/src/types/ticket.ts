@@ -97,6 +97,8 @@ export type ActivityActorType = 'agent' | 'system' | 'automation'
 export interface TicketActivity {
   id: string
   ticketId: string
+  /** Reply record this event belongs to, when the action is reply-related. */
+  replyId?: string | null
   actorName: string
   actorType: ActivityActorType
   action: ActivityAction

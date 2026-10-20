@@ -64,20 +64,24 @@ function UserMenu({ side = 'sidebar' }: { side?: 'sidebar' | 'header' }) {
     <button
       type="button"
       className={cn(
-        'flex w-full items-center gap-2.5 rounded-md p-1.5 text-left transition-colors hover:bg-muted focus:outline-none',
-        side === 'sidebar' && 'border-t border-border pt-3',
+        'flex items-center gap-2.5 rounded-md text-left transition-colors hover:bg-muted focus:outline-none',
+        side === 'sidebar'
+          ? 'w-full border-t border-border p-1.5 pt-3'
+          : 'p-0.5',
       )}
       aria-label="Account menu"
     >
       <Avatar initials={initials(DEMO_USER.name)} size="lg" />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium leading-tight text-foreground">
-          {DEMO_USER.name}
+      {side === 'sidebar' ? (
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium leading-tight text-foreground">
+            {DEMO_USER.name}
+          </span>
+          <span className="block truncate text-xs leading-tight text-muted-foreground">
+            {AGENT_ROLE_LABELS[DEMO_USER.role]} · Demo user
+          </span>
         </span>
-        <span className="block truncate text-xs leading-tight text-muted-foreground">
-          {AGENT_ROLE_LABELS[DEMO_USER.role]} · Demo user
-        </span>
-      </span>
+      ) : null}
     </button>
   )
 
@@ -92,12 +96,12 @@ function UserMenu({ side = 'sidebar' }: { side?: 'sidebar' | 'header' }) {
               Abebe Kebede
             </span>
             <span className="block text-xs text-muted-foreground">
-              Demo profile — no auth in Phase 1
+              Demo profile — no authentication
             </span>
           </span>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => navigate('/settings/profile')}>
+        <DropdownMenuItem onSelect={() => navigate('/settings')}>
           <UserRound aria-hidden="true" />
           Profile settings
         </DropdownMenuItem>

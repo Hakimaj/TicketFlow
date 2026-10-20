@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   AlertCircle,
   ArrowRight,
@@ -57,6 +57,20 @@ import {
 
 type FilterState = 'all' | ReplyState
 
+const FILTER_STATES: FilterState[] = [
+  'pending_approval',
+  'approved',
+  'changes_requested',
+  'sent',
+  'draft',
+  'all',
+]
+
+function readStateFilter(params: URLSearchParams): FilterState {
+  const value = params.get('state')
+  return FILTER_STATES.find((state) => state === value) ?? 'pending_approval'
+}
+
 interface ReplyItem {
   reply: CustomerReply
   ticket: Ticket
@@ -106,9 +120,13 @@ export function ApprovalsPage() {
   const [items, setItems] = React.useState<ReplyItem[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<Error | null>(null)
+  const [searchParams] = useSearchParams()
 
-  // Filters — the page opens on the actionable review queue.
-  const [stateFilter, setStateFilter] = React.useState<FilterState>('pending_approval')
+  // Filters — the page opens on the actionable review queue by default, or on
+  // the state requested by a deep link (e.g. Analytics -> Sent (Demo)).
+  const [stateFilter, setStateFilter] = React.useState<FilterState>(() =>
+    readStateFilter(searchParams),
+  )
   const [search, setSearch] = React.useState('')
   const [categoryFilter, setCategoryFilter] = React.useState<string>('all')
   const [priorityFilter, setPriorityFilter] = React.useState<string>('all')

@@ -93,7 +93,7 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Analytics',
     path: '/analytics',
     icon: BarChart3,
-    description: 'Trends and team performance',
+    description: 'Current workload, volume and reply states',
   },
   {
     key: 'activity',
