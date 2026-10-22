@@ -6,6 +6,16 @@ coverage/
 *.log
 npm-debug.log*
 
+# Python backend artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
 # Environment files with secrets must never be committed.
 # `.env.example` (non-secret template) IS committed.
 .env

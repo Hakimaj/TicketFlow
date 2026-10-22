@@ -4,9 +4,16 @@ A support-ticket intake, triage and routing system for a simulated Ethiopian
 e-commerce support team. This repository contains the capstone project being
 built in phases.
 
-**Status: Phase 4 (Analytics, Activity Logs, Settings & polish) — implemented.**
+**Status: Phase 6 (persistent ticket operations, notes & activity APIs) — implemented.**
+
+The frontend is complete through Phase 4 and still runs on its in-memory demo
+service. The FastAPI backend is not wired into the UI yet; it persists tickets,
+replies, internal notes and audit events in PostgreSQL and exposes ticket
+operations, activity history, agent lookup and dashboard metrics.
 
 ## What runs today
+
+### Frontend
 
 - React + TypeScript + Vite application shell (persistent sidebar, top header,
   responsive mobile drawer)
@@ -39,27 +46,69 @@ built in phases.
 - Responsive layout, accessible navigation and mobile drawer; no placeholder
   routes remain
 
-Everything is backed by a typed, local demonstration dataset. There is **no
-backend yet** — no authentication, no persistence, no external services, and
-no API keys anywhere. Reply sending is simulated and no real message is
-delivered.
+The UI is still backed by a typed, local demonstration dataset. Reply sending
+is simulated and no real message is delivered.
+
+### Backend (Phase 6)
+
+- FastAPI service under `/api/v1` with explicit Pydantic schemas
+- PostgreSQL 16 persistence via SQLAlchemy 2.x and two additive Alembic
+  migrations (`0001_initial`, `0002_ticket_operations`)
+- Normalized models for agents, requesters, tickets, customer replies (with
+  approval/send metadata), internal notes and structured activity events
+- Idempotent demo seeding that mirrors the frontend fixtures
+- Liveness and database-readiness probes with sanitized failure responses
+- `GET /api/v1/tickets` with server-side search, status/priority/category/
+  agent/unassigned filters, allow-listed sorting and pagination
+- `GET /api/v1/tickets/{ticket_id}` with requester summary and triage data
+- Persistent `PATCH` mutations for status, priority, category and assignment;
+  each commits with its required audit event or rolls both back
+- `POST/GET` internal notes backed by a dedicated notes table; note bodies never
+  enter general activity summaries
+- Ticket-specific and global activity queries with action/actor/date filters,
+  deterministic ordering and pagination
+- Agent roster and SQL-derived ticket dashboard summary
+- No reply-workflow API, analytics API or authentication yet — those are later
+  phases; write endpoints are local-development only
 
 ## Layout
 
 ```
 frontend/   React + TypeScript + Vite application
-backend/    reserved for a future API phase
-docs/       architecture and frontend→backend integration notes
+backend/    FastAPI + SQLAlchemy + Alembic service and tests
+docs/       architecture, API contract and frontend→backend integration notes
 scripts/    reserved for automation
 ```
 
 ## Quick start
+
+Frontend:
 
 ```bash
 cd frontend
 npm install
 npm run dev       # http://localhost:5173
 ```
+
+Backend (requires Python 3.11+ and Docker):
+
+```bash
+cd backend
+python -m venv .venv
+source .venv/Scripts/activate     # macOS/Linux: source .venv/bin/activate
+python -m pip install -e ".[dev]"
+cp .env.example .env
+docker compose up -d db
+docker compose ps                 # wait for "healthy"
+python -m alembic upgrade head
+python -m scripts.seed
+python -m uvicorn app.main:app --reload --port 8000
+# docs: http://localhost:8000/docs
+```
+
+See `backend/README.md` for environment variables, migration/seed commands,
+backend tests and limitations, and `docs/backend-api-contract.md` for the
+endpoint contract and frontend mapping.
 
 Other commands:
 
@@ -72,11 +121,19 @@ npm test          # Vitest domain tests (workflow, analytics, activity, preferen
 npm run test:e2e  # Playwright browser tests (installed Google Chrome)
 ```
 
+Backend verification:
+
+```bash
+cd backend
+python -m pytest -q              # requires the Docker database to be running
+```
+
 Real browser verification uses the locally installed Chrome channel via
 Playwright; no paid service or browser binary download is required in this
-environment. See `docs/frontend-backend-integration.md` for the current typed
-service contract, state rules and proposals for a future backend.
+environment. See `docs/frontend-backend-integration.md` for the frontend's typed
+service contract and state rules, and `docs/backend-api-contract.md` for the
+implemented API.
 
-No API keys, paid services, accounts or configuration are required. See
-`frontend/.env.example` for the one non-secret variable a future backend
-integration will use.
+No API keys, paid services or external accounts are required. `backend/.env`
+holds local database placeholders and is git-ignored; `frontend/.env.example`
+reserves the API base URL for the later integration.

@@ -1,9 +1,13 @@
 # Frontend → backend integration notes
 
-Status: **Phase 4 frontend only.** This document describes the code that exists
-today and the contract a future backend must satisfy. It does **not** describe
-working endpoints, credentials, or server behaviour. Any API operations listed
-under “Proposed backend operations” are proposals, not existing routes.
+Status: **Phase 6 — frontend unchanged.** The frontend still runs entirely on
+`DemoTicketService`; no page, hook or adapter has been switched to HTTP. The
+backend now supports persisted ticket mutations, internal notes, activity
+history, agent lookup and ticket dashboard aggregates in addition to the
+Phase 5 reads (see [`backend-api-contract.md`](./backend-api-contract.md)).
+This document remains the frontend-side contract and the plan for the later
+integration. Reply workflow, analytics and authentication endpoints are still
+proposals.
 
 ## 1. Current architecture
 
@@ -48,6 +52,11 @@ In-memory fixtures (src/data/*.ts), cloned per service instance
 content. `ActivityLogEntry` is deliberately separate: the service replaces note
 bodies, reply drafts and reviewer comments with safe operational summaries.
 
+On the backend, note text is now a dedicated `ticket_notes` record, and
+`ticket_activities.detail` never contains it: note events carry a fixed summary
+plus `note_id`. Any future adapter must fetch note text from the notes endpoint
+rather than expecting it in the activity timeline.
+
 ## 3. Service operations (existing contract)
 
 ### Ticket queues and triage
@@ -84,6 +93,22 @@ bodies, reply drafts and reviewer comments with safe operational summaries.
 | `listActivityLog(query)` | Sanitized, searchable, action/actor/range filtered, sorted, paginated audit log |
 | `getActivityLogFacets()` | Actors and action types present, with counts |
 | `subscribe(listener)` | Mutation notification; returns unsubscribe |
+
+### Backend availability (Phase 6)
+
+| Frontend method | Backend status | Endpoint |
+| --- | --- | --- |
+| `listTickets`, `getTicket` | implemented | `GET /tickets`, `GET /tickets/{id}` |
+| `updateStatus`, `updatePriority`, `updateCategory`, `assignTicket` | implemented (persistent + audited) | `PATCH /tickets/{id}/{status,priority,category,assignment}` |
+| `listAgents` | implemented | `GET /agents` (roster; look up by ID) |
+| `addInternalNote` | implemented, different return type | `POST /tickets/{id}/notes` returns a note, not a `TicketActivity` |
+| `getTicketActivities` | implemented | `GET /tickets/{id}/activities` |
+| `listActivityLog` | implemented with date bounds instead of `range` | `GET /activities` |
+| `getDashboardStats` | partial | `GET /dashboard/summary` (ticket metrics only) |
+| `getAdjacentTicketIds` | not implemented | — |
+| `getReplies`, reply workflow, `listPendingReplies`, `listAllReplies` | not implemented | — |
+| `getAnalytics` | not implemented | — |
+| `getActivityLogFacets` | not implemented | — |
 
 ## 4. Source of truth and derived rules
 
@@ -133,33 +158,59 @@ Ticket statuses: `new`, `open`, `pending`, `needs_review`, `resolved`, `closed`.
 “Active workload” is defined as `new` + `open` + `pending`; ticket-level
 `needs_review` is counted separately from reply approval.
 
-## 6. Proposed backend operations (not implemented)
+## 6. Backend responsibilities for the later integration
 
-A future HTTP-backed implementation should satisfy the same `TicketService`
-methods so feature code does not change. Proposed responsibilities:
+Implemented in Phase 6: liveness/readiness, ticket list/detail, persistent
+triage mutations, internal notes, ticket and global activity history, agent
+lookup and ticket dashboard aggregates. Still proposed: reply workflow,
+analytics, identity, facets, adjacent navigation and concurrency.
 
 1. **Session/identity** — replace the hard-coded `DEMO_USER` with an
-   authenticated agent/session; enforce role permissions server-side.
-2. **Ticket read/write** — list with server-side search/filter/sort/pagination;
-   fetch one; triage mutations with authorization and concurrency handling.
-3. **Reply workflow** — transactional draft/save/submit/approve/request-changes/
-   send operations. Approval and send must be separate server operations.
-4. **Approval gate** — server must reject send unless the exact approved version
-   is current and a reviewer is recorded. The client guard is not security.
-5. **Audit events** — append server-side, immutable, with stable IDs, actor,
-   timestamp, ticket/reply linkage; expose a sanitized list projection so
-   internal content is not sent to the general log UI.
-6. **Analytics** — return derived aggregates with explicit “as of” time and
-   window semantics; or expose source data and keep derivations in shared
-   selectors. Do not add SLA/CSAT fields unless the underlying records support
-   them.
-7. **Preferences** — remain browser-local unless a future user-settings API is
-   explicitly added. Do not store customer data here.
+   authenticated agent/session; enforce role permissions server-side. Until
+   then, backend `actor_id` is unverified development metadata.
+2. **Ticket read/write** — implemented for list/detail and four triage
+   mutations. Server mutation rules: category re-routes the team but preserves
+   the agent; assignment requires explicit `null` to unassign; unchanged values
+   are no-ops with no audit event; ticket change + audit commit atomically.
+3. **Reply workflow** — still proposed: transactional draft/save/submit/approve/
+   request-changes/send operations. Approval and send must remain separate
+   server operations.
+4. **Approval gate** — proposed; the server must reject send unless the exact
+   approved version is current and a reviewer is recorded.
+5. **Audit events** — implemented append-only writes with stable public IDs,
+   actor snapshot, timestamp and ticket/reply/note linkage. The general activity
+   projection is privacy-safe; note bodies stay in `ticket_notes`.
+6. **Analytics** — ticket dashboard summary is implemented; windowed analytics,
+   trends and reply-state metrics are not. Do not add SLA/CSAT fields unless the
+   underlying records support them.
+7. **Preferences** — remain browser-local; no server settings API.
+
+### 6.1 Differences an adapter must handle
+
+- snake_case ↔ camelCase; `{items, pagination}` → `TicketPage`.
+- `updateStatus` etc. return the updated ticket after commit; call subscribers
+  after the response resolves.
+- `assignTicket(id, null)` must send `{"agent_id": null}`; omission is rejected.
+- Category changes preserve `assignedAgentId`; team is derived from category.
+- Errors use `{error:{code,message,details?}}`; map to `TicketServiceError`.
+- `addInternalNote` returns a note (`id`, `ticket_id`, `content`, `author`,
+  timestamps) rather than the `TicketActivity` the UI currently expects. The
+  adapter can return the linked activity or refetch the activity list.
+- Activity `summary` maps to `TicketActivity.detail`; note bodies must be read
+  from the notes endpoint, not from activity data.
+- `listActivityLog` has `start`/`end` instead of `range`, `actor_id`/`search`
+  instead of an actor-name filter, and no facet endpoint.
+- `getDashboardStats`: `active_tickets`/`unassigned_tickets`/
+  `urgent_high_tickets`/`needs_review_tickets`/`status_counts` map to existing
+  fields. API category/priority breakdowns cover all tickets, while the current
+  UI computes category/priority over active tickets; `pendingApprovals`,
+  `receivedTrend`, `recentTickets`, `recentActivity` and `prioritySummary` have
+  no API equivalent yet. Do not silently substitute differently-scoped numbers.
 
 Suggested adapter shape (proposal): create `HttpTicketService implements
 TicketService`, swap the exported instance in `src/services/index.ts`, and keep
-the existing method signatures and error type. No endpoint names are specified
-here because none exist.
+the existing method signatures and error type. Do not switch only part of the
+app: mixed demo/API sources would show inconsistent records.
 
 ## 7. Expected UI behaviour during integration
 
@@ -178,8 +229,10 @@ approval/send).
 
 ## 8. Current simulated/demo-only functionality
 
-- All data is in-memory; reload resets tickets, replies and activity.
-- Sending is labelled “(Demo)”; no email, chat, Telegram or other delivery exists.
+- Frontend data remains in-memory; reload resets tickets, replies and activity.
+  Backend data is persistent, but no frontend page reads it in this phase.
+- Sending is labelled “(Demo)”; no email, chat, Telegram or other delivery exists
+  in either the frontend or the backend (no reply workflow API exists yet).
 - One hard-coded demo identity (`AG-01`, supervisor) performs every action;
   self-approval is possible by design. There is no login, token or role check.
 - Analytics/activity calculations run in the browser against demo records.
