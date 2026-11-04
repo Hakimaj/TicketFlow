@@ -9,6 +9,7 @@ from fastapi import APIRouter, Query
 
 from app.api.deps import DbSession
 from app.api.params import TicketIdPath
+from app.authorization import CanReadOperations
 from app.models.enums import ActivityAction
 from app.schemas.activities import ActivityListResponse, ActivityResponse
 from app.schemas.common import ErrorResponse
@@ -32,6 +33,7 @@ _ERROR_RESPONSES = {
     "",
     response_model=list[ActivityResponse],
     responses=_ERROR_RESPONSES,
+    dependencies=[CanReadOperations],
     summary="List activity for one ticket",
     description=(
         "Returns that ticket's persisted events oldest first, with a stable "
@@ -49,6 +51,7 @@ def list_ticket_activities(
     "",
     response_model=ActivityListResponse,
     responses=_ERROR_RESPONSES,
+    dependencies=[CanReadOperations],
     summary="List activity across tickets",
     description=(
         "Server-side filtered, sorted and paginated audit log. `start` is "

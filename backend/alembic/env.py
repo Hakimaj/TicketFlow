@@ -46,6 +46,11 @@ def run_migrations_online() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        # Never hang forever on an unreachable/IPv6-first host; the app engine
+        # uses the same bounded connection timeout.
+        connect_args={
+            "connect_timeout": settings.database_connect_timeout_seconds
+        },
     )
 
     with connectable.connect() as connection:

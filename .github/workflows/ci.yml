@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# CI-only throwaway values. The PostgreSQL service exists only for the duration
+# of the job, so these are not credentials. Real secrets are never placed here.
+env:
+  POSTGRES_USER: ticketflow
+  POSTGRES_PASSWORD: ticketflow_ci_only
+  POSTGRES_DB: ticketflow
+  DATABASE_URL: postgresql+psycopg://ticketflow:ticketflow_ci_only@localhost:5432/ticketflow
+  APP_ENV: test
+  JWT_SECRET: ci-only-jwt-secret-not-for-production-000000
+  CORS_ORIGINS: http://localhost:5173
+
+jobs:
+  backend:
+    name: Backend tests (PostgreSQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: ticketflow
+          POSTGRES_USER: ticketflow
+          POSTGRES_PASSWORD: ticketflow_ci_only
+          POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ticketflow -d ticketflow"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+          --health-start-period 5s
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev]"
+      # Fails fast on a broken migration chain; the test fixture also migrates
+      # its own `ticketflow_test` database from scratch.
+      - name: Apply migrations
+        run: python -m alembic upgrade head
+      - name: Verify the migration chain is reversible
+        run: |
+          python -m alembic downgrade base
+          python -m alembic upgrade head
+      - name: Run tests
+        run: python -m pytest -q
+
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      # Demo-mode browser checks. The runner ships the stable Chrome channel
+      # that both Playwright configs select, so no browser download is needed.
+      - name: Demo-mode browser tests
+        run: npx playwright test
+      - name: Upload Playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-demo
+          path: frontend/test-results
+          retention-days: 7
+
+  e2e-api:
+    name: API-backed workflow (real backend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: ticketflow
+          POSTGRES_USER: ticketflow
+          POSTGRES_PASSWORD: ticketflow_ci_only
+          POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ticketflow -d ticketflow"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+          --health-start-period 5s
+    env:
+      # Isolated `*_e2e` database; the preparation script refuses any other name.
+      E2E_DATABASE_URL: postgresql+psycopg://ticketflow:ticketflow_ci_only@localhost:5432/ticketflow_e2e
+      E2E_ACCOUNT_PASSWORD: ci-only-e2e-account-password
+      E2E_PYTHON: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install backend
+        working-directory: backend
+        run: python -m pip install -e .
+      - name: Install frontend
+        working-directory: frontend
+        run: npm ci
+      - name: Run authenticated two-account workflow
+        working-directory: frontend
+        run: npx playwright test --config playwright.api.config.ts
+      - name: Upload Playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-api
+          path: frontend/test-results
+          retention-days: 7

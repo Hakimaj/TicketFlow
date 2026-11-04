@@ -11,6 +11,7 @@ from app.models.enums import (
     ActivityAction,
     SupportTeam,
     TicketCategory,
+    TicketChannel,
     TicketPriority,
     TicketStatus,
 )
@@ -61,6 +62,13 @@ CATEGORY_TEAM: dict[TicketCategory, SupportTeam] = {
     TicketCategory.TECHNICAL: SupportTeam.TECHNICAL_SUPPORT,
     TicketCategory.RETURNS: SupportTeam.RETURNS_TEAM,
     TicketCategory.GENERAL: SupportTeam.CUSTOMER_SUPPORT,
+}
+
+CHANNEL_LABELS: dict[TicketChannel, str] = {
+    TicketChannel.WEB_FORM: "Web form",
+    TicketChannel.EMAIL: "Email",
+    TicketChannel.PHONE: "Phone",
+    TicketChannel.CHAT: "Chat",
 }
 
 ACTIVITY_ACTION_LABELS: dict[ActivityAction, str] = {

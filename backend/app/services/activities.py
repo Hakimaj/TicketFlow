@@ -28,8 +28,14 @@ def to_response(activity: TicketActivity) -> ActivityResponse:
         id=activity.public_id,
         ticket_id=activity.ticket.public_id,
         reply_id=activity.reply.public_id if activity.reply else None,
+        reply_version=activity.reply_version,
         note_id=str(activity.note_id) if activity.note_id else None,
         actor_id=activity.actor_id,
+        actor_account_id=(
+            str(activity.actor_account_id)
+            if activity.actor_account_id
+            else None
+        ),
         actor_name=activity.actor_name,
         actor_type=activity.actor_type,
         action=activity.action,

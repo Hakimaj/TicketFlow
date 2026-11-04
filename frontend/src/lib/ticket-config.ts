@@ -100,6 +100,13 @@ export const TEAM_LABELS: Record<SupportTeam, string> = {
   returns_team: 'Returns Team',
 }
 
+export const TICKET_CHANNELS: TicketChannel[] = [
+  'web_form',
+  'email',
+  'phone',
+  'chat',
+]
+
 export const CHANNEL_LABELS: Record<TicketChannel, string> = {
   web_form: 'Web form',
   email: 'Email',
@@ -111,6 +118,16 @@ export const AGENT_ROLE_LABELS: Record<AgentRole, string> = {
   admin: 'Administrator',
   supervisor: 'Supervisor',
   agent: 'Support Agent',
+}
+
+/** Labels for authenticated account roles (backend `AccountRole`). */
+export const ACCOUNT_ROLE_LABELS: Record<
+  'agent' | 'reviewer' | 'admin',
+  string
+> = {
+  agent: 'Support Agent',
+  reviewer: 'Reviewer',
+  admin: 'Administrator',
 }
 
 /* ------------------------------------------------------------------ */

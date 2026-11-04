@@ -21,8 +21,8 @@ def _expected_count(**criteria: object) -> int:
     return total
 
 
-def _all_items(client: TestClient, **params: object) -> list[dict]:
-    response = client.get(
+def _all_items(auth_client: TestClient, **params: object) -> list[dict]:
+    response = auth_client.get(
         "/api/v1/tickets", params={"page_size": 100, **params}
     )
     assert response.status_code == 200, response.text
@@ -30,9 +30,9 @@ def _all_items(client: TestClient, **params: object) -> list[dict]:
 
 
 def test_list_returns_page_and_pagination_metadata(
-    client: TestClient, seeded: None
+    auth_client: TestClient, seeded: None
 ) -> None:
-    response = client.get("/api/v1/tickets")
+    response = auth_client.get("/api/v1/tickets")
     assert response.status_code == 200
     payload = response.json()
 
@@ -57,8 +57,8 @@ def test_list_returns_page_and_pagination_metadata(
     assert ISO_UTC.match(item["updated_at"])
 
 
-def test_list_rows_are_privacy_limited(client: TestClient, seeded: None) -> None:
-    item = _all_items(client)[0]
+def test_list_rows_are_privacy_limited(auth_client: TestClient, seeded: None) -> None:
+    item = _all_items(auth_client)[0]
     # Email, original message and internal triage notes belong to the detail
     # endpoint, not to every queue row.
     assert "requester_email" not in item
@@ -68,11 +68,11 @@ def test_list_rows_are_privacy_limited(client: TestClient, seeded: None) -> None
 
 
 def test_pagination_walks_pages_without_duplicates(
-    client: TestClient, seeded: None
+    auth_client: TestClient, seeded: None
 ) -> None:
-    first = client.get("/api/v1/tickets", params={"page": 1, "page_size": 10})
-    second = client.get("/api/v1/tickets", params={"page": 2, "page_size": 10})
-    third = client.get("/api/v1/tickets", params={"page": 3, "page_size": 10})
+    first = auth_client.get("/api/v1/tickets", params={"page": 1, "page_size": 10})
+    second = auth_client.get("/api/v1/tickets", params={"page": 2, "page_size": 10})
+    third = auth_client.get("/api/v1/tickets", params={"page": 3, "page_size": 10})
 
     assert first.status_code == second.status_code == third.status_code == 200
     ids = [item["id"] for page in (first, second, third) for item in page.json()["items"]]
@@ -83,51 +83,51 @@ def test_pagination_walks_pages_without_duplicates(
     assert len(first.json()["items"]) == 10
     assert len(third.json()["items"]) == 4
 
-    beyond = client.get("/api/v1/tickets", params={"page": 99})
+    beyond = auth_client.get("/api/v1/tickets", params={"page": 99})
     assert beyond.status_code == 200
     assert beyond.json()["items"] == []
     assert beyond.json()["pagination"]["total"] == len(TICKET_SEEDS)
 
 
 def test_search_matches_ticket_id_subject_and_requester(
-    client: TestClient, seeded: None
+    auth_client: TestClient, seeded: None
 ) -> None:
-    by_id = client.get("/api/v1/tickets", params={"search": "TF-1051"}).json()
+    by_id = auth_client.get("/api/v1/tickets", params={"search": "TF-1051"}).json()
     assert [item["id"] for item in by_id["items"]] == ["TF-1051"]
 
-    by_subject = client.get(
+    by_subject = auth_client.get(
         "/api/v1/tickets", params={"search": "checkout freezes"}
     ).json()
     assert [item["id"] for item in by_subject["items"]] == ["TF-1048"]
 
-    by_requester = client.get("/api/v1/tickets", params={"search": "marta"}).json()
+    by_requester = auth_client.get("/api/v1/tickets", params={"search": "marta"}).json()
     assert [item["id"] for item in by_requester["items"]] == ["TF-1051"]
 
-    case_insensitive = client.get(
+    case_insensitive = auth_client.get(
         "/api/v1/tickets", params={"search": "TELEBIRR"}
     ).json()
     assert case_insensitive["pagination"]["total"] >= 3
 
 
-def test_search_like_wildcards_are_escaped(client: TestClient, seeded: None) -> None:
+def test_search_like_wildcards_are_escaped(auth_client: TestClient, seeded: None) -> None:
     # A literal '%' appears in no subject/requester; an unescaped LIKE would
     # match every row.
-    response = client.get("/api/v1/tickets", params={"search": "%"})
+    response = auth_client.get("/api/v1/tickets", params={"search": "%"})
     assert response.status_code == 200
     assert response.json()["pagination"]["total"] == 0
 
-    response = client.get("/api/v1/tickets", params={"search": "_"})
+    response = auth_client.get("/api/v1/tickets", params={"search": "_"})
     assert response.json()["pagination"]["total"] == 0
 
 
 def test_status_filter_including_multi_value(
-    client: TestClient, seeded: None
+    auth_client: TestClient, seeded: None
 ) -> None:
-    open_items = _all_items(client, status="open")
+    open_items = _all_items(auth_client, status="open")
     assert len(open_items) == _expected_count(status=TicketStatus.OPEN)
     assert {item["status"] for item in open_items} == {"open"}
 
-    multi = _all_items(client, status=["open", "pending"])
+    multi = _all_items(auth_client, status=["open", "pending"])
     expected = _expected_count(status=TicketStatus.OPEN) + _expected_count(
         status=TicketStatus.PENDING
     )
@@ -135,37 +135,37 @@ def test_status_filter_including_multi_value(
     assert {item["status"] for item in multi} == {"open", "pending"}
 
 
-def test_priority_and_category_filters(client: TestClient, seeded: None) -> None:
-    urgent = _all_items(client, priority="urgent")
+def test_priority_and_category_filters(auth_client: TestClient, seeded: None) -> None:
+    urgent = _all_items(auth_client, priority="urgent")
     assert len(urgent) == _expected_count(priority=TicketPriority.URGENT)
     assert {item["priority"] for item in urgent} == {"urgent"}
 
-    billing = _all_items(client, category="billing")
+    billing = _all_items(auth_client, category="billing")
     assert len(billing) == _expected_count(category="billing")
     assert {item["category"] for item in billing} == {"billing"}
 
-    combined = _all_items(client, category="billing", priority="urgent")
+    combined = _all_items(auth_client, category="billing", priority="urgent")
     assert len(combined) == _expected_count(
         category="billing", priority=TicketPriority.URGENT
     )
 
 
 def test_assigned_agent_and_unassigned_filters(
-    client: TestClient, seeded: None
+    auth_client: TestClient, seeded: None
 ) -> None:
-    assigned = _all_items(client, assigned_agent_id="AG-02")
+    assigned = _all_items(auth_client, assigned_agent_id="AG-02")
     assert len(assigned) == _expected_count(assigned_agent_id="AG-02")
     assert {item["assigned_agent_id"] for item in assigned} == {"AG-02"}
 
-    unassigned = _all_items(client, unassigned="true")
+    unassigned = _all_items(auth_client, unassigned="true")
     assert len(unassigned) == _expected_count(assigned_agent_id=None)
     assert {item["assigned_agent_id"] for item in unassigned} == {None}
 
 
 def test_unassigned_and_agent_filter_cannot_be_combined(
-    client: TestClient, seeded: None
+    auth_client: TestClient, seeded: None
 ) -> None:
-    response = client.get(
+    response = auth_client.get(
         "/api/v1/tickets",
         params={"unassigned": "true", "assigned_agent_id": "AG-02"},
     )
@@ -174,25 +174,25 @@ def test_unassigned_and_agent_filter_cannot_be_combined(
 
 
 def test_sorting_uses_domain_order_and_is_deterministic(
-    client: TestClient, seeded: None
+    auth_client: TestClient, seeded: None
 ) -> None:
     rank = {"urgent": 0, "high": 1, "normal": 2, "low": 3}
-    by_priority = _all_items(client, sort_by="priority", sort_dir="asc")
+    by_priority = _all_items(auth_client, sort_by="priority", sort_dir="asc")
     ranks = [rank[item["priority"]] for item in by_priority]
     assert ranks == sorted(ranks)
     assert by_priority[0]["priority"] == "urgent"
 
-    newest = _all_items(client, sort_by="created_at", sort_dir="desc")
+    newest = _all_items(auth_client, sort_by="created_at", sort_dir="desc")
     assert newest[0]["id"] == "TF-1051"
-    oldest = _all_items(client, sort_by="created_at", sort_dir="asc")
+    oldest = _all_items(auth_client, sort_by="created_at", sort_dir="asc")
     assert oldest[0]["id"] == "TF-1028"
 
-    subjects = [item["subject"].lower() for item in _all_items(client, sort_by="subject", sort_dir="asc")]
+    subjects = [item["subject"].lower() for item in _all_items(auth_client, sort_by="subject", sort_dir="asc")]
     assert subjects == sorted(subjects)
 
 
 def test_invalid_query_values_return_validation_errors(
-    client: TestClient, seeded: None
+    auth_client: TestClient, seeded: None
 ) -> None:
     cases = [
         {"page": 0},
@@ -207,7 +207,7 @@ def test_invalid_query_values_return_validation_errors(
         {"unassigned": "maybe"},
     ]
     for params in cases:
-        response = client.get("/api/v1/tickets", params=params)
+        response = auth_client.get("/api/v1/tickets", params=params)
         assert response.status_code == 422, (params, response.text)
         error = response.json()["error"]
         assert error["code"] == "validation_error"
@@ -217,9 +217,9 @@ def test_invalid_query_values_return_validation_errors(
 
 
 def test_detail_returns_ticket_with_requester_summary(
-    client: TestClient, seeded: None
+    auth_client: TestClient, seeded: None
 ) -> None:
-    response = client.get("/api/v1/tickets/TF-1051")
+    response = auth_client.get("/api/v1/tickets/TF-1051")
     assert response.status_code == 200
     ticket = response.json()
 
@@ -249,8 +249,8 @@ def test_detail_returns_ticket_with_requester_summary(
     assert "activities" not in ticket
 
 
-def test_detail_returns_review_metadata(client: TestClient, seeded: None) -> None:
-    ticket = client.get("/api/v1/tickets/TF-1038").json()
+def test_detail_returns_review_metadata(auth_client: TestClient, seeded: None) -> None:
+    ticket = auth_client.get("/api/v1/tickets/TF-1038").json()
     assert ticket["status"] == "needs_review"
     assert ticket["suggested_priority"] == "urgent"
     assert ticket["review_note"].startswith("Possible account merge issue")
@@ -258,17 +258,17 @@ def test_detail_returns_review_metadata(client: TestClient, seeded: None) -> Non
 
 
 def test_detail_is_case_insensitive_for_public_id(
-    client: TestClient, seeded: None
+    auth_client: TestClient, seeded: None
 ) -> None:
-    response = client.get("/api/v1/tickets/tf-1029")
+    response = auth_client.get("/api/v1/tickets/tf-1029")
     assert response.status_code == 200
     assert response.json()["id"] == "TF-1029"
 
 
 def test_unknown_ticket_returns_404_envelope(
-    client: TestClient, seeded: None
+    auth_client: TestClient, seeded: None
 ) -> None:
-    response = client.get("/api/v1/tickets/TF-9999")
+    response = auth_client.get("/api/v1/tickets/TF-9999")
     assert response.status_code == 404
     assert response.json() == {
         "error": {
@@ -278,8 +278,8 @@ def test_unknown_ticket_returns_404_envelope(
     }
 
 
-def test_empty_result_is_not_an_error(client: TestClient, seeded: None) -> None:
-    response = client.get("/api/v1/tickets", params={"search": "nothing-matches"})
+def test_empty_result_is_not_an_error(auth_client: TestClient, seeded: None) -> None:
+    response = auth_client.get("/api/v1/tickets", params={"search": "nothing-matches"})
     assert response.status_code == 200
     assert response.json() == {
         "items": [],
@@ -287,7 +287,13 @@ def test_empty_result_is_not_an_error(client: TestClient, seeded: None) -> None:
     }
 
 
-def test_database_failure_is_sanitized() -> None:
+def test_unauthenticated_database_failure_is_sanitized() -> None:
+    """Authentication is decided before any operational query runs.
+
+    Without credentials the request is rejected as unauthenticated, so a
+    database outage cannot leak driver details to anonymous callers. The
+    sanitized 503 path is covered by the readiness probe tests.
+    """
     from app.core.config import Settings
     from app.main import create_app
 
@@ -297,10 +303,15 @@ def test_database_failure_is_sanitized() -> None:
     )
     with TestClient(create_app(settings)) as broken_client:
         response = broken_client.get("/api/v1/tickets")
+        ready = broken_client.get("/api/v1/health/ready")
 
-    assert response.status_code == 503
-    body = response.text.lower()
-    assert response.json()["error"]["code"] == "database_unavailable"
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "not_authenticated"
+    assert ready.status_code == 503
+    body = ready.json()
+    assert body["status"] == "unavailable"
+    assert body["checks"]["database"] == "unavailable"
+    body = (response.text + ready.text).lower()
     assert "secret" not in body
     assert "sqlalchemy" not in body
     assert "traceback" not in body

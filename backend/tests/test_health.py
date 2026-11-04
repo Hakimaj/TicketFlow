@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from app.core.config import Settings
+from app.core.config import DEV_DATABASE_URL, Settings
 from app.main import create_app
 
 
@@ -134,7 +134,9 @@ def test_unknown_route_uses_error_envelope(client: TestClient) -> None:
 
 
 def test_method_not_allowed_uses_error_envelope(client: TestClient) -> None:
-    response = client.post("/api/v1/tickets")
+    # `POST /tickets` now exists (intake); use a method the collection does not
+    # implement so the envelope for unsupported methods stays covered.
+    response = client.put("/api/v1/tickets")
     assert response.status_code == 405
     assert response.json()["error"]["code"] == "method_not_allowed"
 
@@ -163,3 +165,43 @@ def test_settings_parse_cors_origin_list() -> None:
         "http://127.0.0.1:5173",
     ]
     assert settings.is_test is True
+
+
+def _production_settings(**overrides):
+    values = {
+        "app_env": "production",
+        "jwt_secret": "a-production-only-random-secret-value-1234567890",
+        "database_url": (
+            "postgresql+psycopg://ticketflow:strong-password@db:5432/ticketflow"
+        ),
+        "cors_origins": "https://tickets.example.com",
+        "cookie_secure": True,
+        "cookie_samesite": "lax",
+        "demo_accounts_enabled": False,
+    }
+    values.update(overrides)
+    return Settings(**values)
+
+
+def test_production_accepts_an_explicit_secure_configuration() -> None:
+    settings = _production_settings()
+    assert settings.app_env == "production"
+    assert settings.cookie_secure is True
+    assert settings.cors_origin_list == ["https://tickets.example.com"]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("cookie_secure", False),
+        ("demo_accounts_enabled", True),
+        ("database_url", DEV_DATABASE_URL),
+        ("cors_origins", "http://tickets.example.com"),
+        ("jwt_secret", "test-only-jwt-secret-not-for-production-0000"),
+    ],
+)
+def test_production_rejects_development_defaults(
+    field: str, value: object
+) -> None:
+    with pytest.raises(ValidationError):
+        _production_settings(**{field: value})

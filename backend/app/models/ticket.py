@@ -11,9 +11,11 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     Uuid,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -92,6 +94,13 @@ class Ticket(TimestampMixin, Base):
         enum_type(TicketPriority, "ticket_priority"), nullable=True
     )
     review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Optimistic concurrency token. Mutations require the version the client
+    # read and increment it while holding a row lock, so two operators editing
+    # the same ticket cannot silently overwrite each other.
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default=text("1")
+    )
 
     requester: Mapped["Requester"] = relationship(back_populates="tickets")
     assigned_agent: Mapped["Agent | None"] = relationship(

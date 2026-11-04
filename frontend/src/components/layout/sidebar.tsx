@@ -14,8 +14,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Avatar } from '@/components/ui/misc'
-import { AGENT_ROLE_LABELS } from '@/lib/ticket-config'
-import { DEMO_USER } from '@/data'
+import { ACCOUNT_ROLE_LABELS } from '@/lib/ticket-config'
+import { useAuth } from '@/auth'
 import { NAV_ITEMS, type NavCounts } from './nav-config'
 import { cn } from '@/lib/utils'
 
@@ -60,6 +60,15 @@ export function BrandMark({ className }: { className?: string }) {
 /** The bottom user card also acts as the user menu trigger on desktop. */
 function UserMenu({ side = 'sidebar' }: { side?: 'sidebar' | 'header' }) {
   const navigate = useNavigate()
+  const { user, isDemo, signOut } = useAuth()
+  const signedInName = user?.display_name ?? 'Signed out'
+  const roleLabel = user ? ACCOUNT_ROLE_LABELS[user.role] : 'No session'
+
+  async function handleSignOut() {
+    await signOut()
+    navigate('/login', { replace: true })
+  }
+
   const trigger = (
     <button
       type="button"
@@ -71,14 +80,14 @@ function UserMenu({ side = 'sidebar' }: { side?: 'sidebar' | 'header' }) {
       )}
       aria-label="Account menu"
     >
-      <Avatar initials={initials(DEMO_USER.name)} size="lg" />
+      <Avatar initials={initials(signedInName)} size="lg" />
       {side === 'sidebar' ? (
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium leading-tight text-foreground">
-            {DEMO_USER.name}
+            {signedInName}
           </span>
           <span className="block truncate text-xs leading-tight text-muted-foreground">
-            {AGENT_ROLE_LABELS[DEMO_USER.role]} · Demo user
+            {roleLabel} · {isDemo ? 'Demo mode' : 'Signed in'}
           </span>
         </span>
       ) : null}
@@ -93,10 +102,10 @@ function UserMenu({ side = 'sidebar' }: { side?: 'sidebar' | 'header' }) {
           <CircleUserRound aria-hidden="true" className="size-4 text-muted-foreground" />
           <span>
             <span className="block text-sm font-medium text-foreground">
-              Abebe Kebede
+              {signedInName}
             </span>
             <span className="block text-xs text-muted-foreground">
-              Demo profile — no authentication
+              {isDemo ? 'Demo account — no server session' : user?.email}
             </span>
           </span>
         </DropdownMenuLabel>
@@ -110,10 +119,17 @@ function UserMenu({ side = 'sidebar' }: { side?: 'sidebar' | 'header' }) {
           Workspace settings
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem disabled>
-          <LogOut aria-hidden="true" />
-          Sign out
-        </DropdownMenuItem>
+        {isDemo ? (
+          <DropdownMenuItem disabled>
+            <LogOut aria-hidden="true" />
+            Sign out (demo mode)
+          </DropdownMenuItem>
+        ) : (
+          <DropdownMenuItem onSelect={() => void handleSignOut()}>
+            <LogOut aria-hidden="true" />
+            Sign out
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -127,11 +143,18 @@ function SidebarContent({
   counts?: NavCounts
   onNavigate?: () => void
 }) {
+  const { hasPermission, isDemo } = useAuth()
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-full grow flex-col px-3 pt-0">
         <nav aria-label="Main navigation" className="flex-1 space-y-0.5 py-0">
-          {NAV_ITEMS.filter((item) => item.key !== 'settings').map((item) => {
+          {NAV_ITEMS.filter(
+            (item) =>
+              item.key !== 'settings' &&
+              (!item.apiOnly || !isDemo) &&
+              (!item.permission || hasPermission(item.permission)),
+          ).map((item) => {
             const Icon = item.icon
             const counter = item.counter
             const count =

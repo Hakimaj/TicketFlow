@@ -15,6 +15,7 @@ from app.models.enums import (
     ActivityAction,
     ActivityActorType,
     AgentRole,
+    ReplyReviewDecision,
     ReplyState,
     SupportTeam,
     TicketCategory,
@@ -40,7 +41,7 @@ def _alembic(*args: str) -> subprocess.CompletedProcess[str]:
 def test_database_is_at_head_revision() -> None:
     result = _alembic("current")
     assert result.returncode == 0, result.stderr
-    assert "0002_ticket_operations (head)" in result.stdout
+    assert "0005_intake_accounts (head)" in result.stdout
 
 
 def test_models_and_migrations_are_in_sync() -> None:
@@ -57,8 +58,12 @@ def test_all_expected_tables_exist(db_engine) -> None:
         "requesters",
         "tickets",
         "customer_replies",
+        "reply_revisions",
+        "reply_reviews",
         "ticket_activities",
         "ticket_notes",
+        "user_accounts",
+        "refresh_sessions",
         "alembic_version",
     }
 
@@ -98,6 +103,8 @@ def test_only_one_active_reply_per_ticket_index(db_engine) -> None:
 
 
 def test_enum_labels_match_frontend_contract(db_engine) -> None:
+    from app.models.enums import AccountRole
+
     expected = {
         "agent_role": [member.value for member in AgentRole],
         "support_team": [member.value for member in SupportTeam],
@@ -106,8 +113,12 @@ def test_enum_labels_match_frontend_contract(db_engine) -> None:
         "ticket_category": [member.value for member in TicketCategory],
         "ticket_channel": [member.value for member in TicketChannel],
         "reply_state": [member.value for member in ReplyState],
+        "reply_review_decision": [
+            member.value for member in ReplyReviewDecision
+        ],
         "activity_actor_type": [member.value for member in ActivityActorType],
         "activity_action": [member.value for member in ActivityAction],
+        "account_role": [member.value for member in AccountRole],
     }
     with db_engine.connect() as connection:
         rows = connection.execute(
@@ -318,6 +329,225 @@ def test_downgrade_and_upgrade_round_trip(db_engine) -> None:
         "requesters",
         "tickets",
         "customer_replies",
+        "reply_revisions",
+        "reply_reviews",
         "ticket_activities",
         "ticket_notes",
     }
+
+
+def _seed_workflow_ticket(db_session) -> tuple:
+    from app.models.agent import Agent
+    from app.models.requester import Requester
+    from app.models.ticket import Ticket
+
+    requester = Requester(name="Reply Tester", email="reply@example.test")
+    agent = Agent(
+        id="AG-97",
+        name="Reply Agent",
+        email="reply.agent@example.test",
+        role=AgentRole.AGENT,
+    )
+    db_session.add_all([requester, agent])
+    db_session.flush()
+    ticket = Ticket(
+        public_id="TF-9300",
+        subject="Reply constraints",
+        description="Checking reply constraints.",
+        requester_id=requester.id,
+        channel=TicketChannel.EMAIL,
+        category=TicketCategory.GENERAL,
+        priority=TicketPriority.NORMAL,
+        status=TicketStatus.OPEN,
+    )
+    db_session.add(ticket)
+    db_session.flush()
+    return ticket, agent
+
+
+def test_reply_workflow_indexes_and_audit_column(db_engine) -> None:
+    inspector = inspect(db_engine)
+    revision_indexes = {
+        index["name"] for index in inspector.get_indexes("reply_revisions")
+    }
+    assert {
+        "ix_reply_revisions_reply_id",
+        "ix_reply_revisions_author_id",
+        "ix_reply_revisions_reply_created",
+        "uq_reply_revisions_reply_version",
+    } <= revision_indexes
+
+    review_indexes = {
+        index["name"] for index in inspector.get_indexes("reply_reviews")
+    }
+    assert {
+        "ix_reply_reviews_reply_created",
+        "ix_reply_reviews_reply_version_decision",
+        "ix_reply_reviews_decision",
+    } <= review_indexes
+
+    reply_indexes = {
+        index["name"] for index in inspector.get_indexes("customer_replies")
+    }
+    assert "ix_customer_replies_state_submitted" in reply_indexes
+
+    activity_columns = {
+        column["name"]
+        for column in inspector.get_columns("ticket_activities")
+    }
+    assert "reply_version" in activity_columns
+
+    with db_engine.connect() as connection:
+        reply_checks = {
+            name
+            for (name,) in connection.execute(
+                text(
+                    "SELECT conname FROM pg_constraint "
+                    "WHERE conrelid = 'customer_replies'::regclass "
+                    "AND contype = 'c'"
+                )
+            )
+        }
+    assert {
+        "ck_customer_replies_body_not_blank",
+        "ck_customer_replies_body_max_length",
+        "ck_customer_replies_sent_matches_approval",
+        "ck_customer_replies_approved_matches_version",
+        "ck_customer_replies_approval_metadata_complete",
+    } <= reply_checks
+
+
+@pytest.mark.parametrize(
+    "state, approved_version, reviewer, reviewed_at, sent_at",
+    [
+        (ReplyState.APPROVED, None, True, True, None),
+        (ReplyState.APPROVED, 2, True, True, None),
+        (ReplyState.SENT, None, True, True, "now"),
+        (ReplyState.SENT, 2, True, True, "now"),
+    ],
+)
+def test_database_enforces_approval_gate(
+    db_session, state, approved_version, reviewer, reviewed_at, sent_at
+) -> None:
+    from app.models.common import utcnow
+    from app.models.reply import CustomerReply
+
+    ticket, agent = _seed_workflow_ticket(db_session)
+    now = utcnow()
+
+    db_session.add(
+        CustomerReply(
+            public_id="REP-902",
+            ticket_id=ticket.id,
+            author_id=agent.id,
+            body="Body",
+            state=state,
+            version=1,
+            submitted_version=1,
+            submitted_at=now,
+            approved_version=approved_version,
+            reviewer_id=agent.id if reviewer else None,
+            reviewer_name=agent.name if reviewer else None,
+            reviewed_at=now if reviewed_at else None,
+            sent_at=now if sent_at else None,
+        )
+    )
+    with pytest.raises(IntegrityError):
+        db_session.flush()
+    db_session.rollback()
+
+
+def test_database_rejects_blank_or_oversized_reply_body(db_session) -> None:
+    from app.models.reply import CustomerReply
+
+    ticket, agent = _seed_workflow_ticket(db_session)
+    for index, invalid in enumerate(("   ", "x" * 8001)):
+        with pytest.raises(IntegrityError):
+            with db_session.begin_nested():
+                db_session.add(
+                    CustomerReply(
+                        public_id=f"REP-91{index}",
+                        ticket_id=ticket.id,
+                        author_id=agent.id,
+                        body=invalid,
+                        state=ReplyState.DRAFT,
+                        version=1,
+                    )
+                )
+                db_session.flush()
+
+
+def test_revision_versions_are_unique_per_reply(db_session) -> None:
+    from app.models.reply import CustomerReply, ReplyRevision
+
+    ticket, agent = _seed_workflow_ticket(db_session)
+    reply = CustomerReply(
+        public_id="REP-903",
+        ticket_id=ticket.id,
+        author_id=agent.id,
+        body="Body",
+        state=ReplyState.DRAFT,
+        version=2,
+    )
+    db_session.add(reply)
+    db_session.flush()
+
+    for version in (1, 2):
+        db_session.add(
+            ReplyRevision(
+                reply_id=reply.id,
+                version=version,
+                body=f"Body v{version}",
+                author_id=agent.id,
+            )
+        )
+    db_session.flush()
+
+    db_session.add(
+        ReplyRevision(
+            reply_id=reply.id,
+            version=2,
+            body="Duplicate version",
+            author_id=agent.id,
+        )
+    )
+    with pytest.raises(IntegrityError):
+        db_session.flush()
+    db_session.rollback()
+
+
+def test_change_request_review_requires_internal_comment(db_session) -> None:
+    from app.models.reply import CustomerReply, ReplyReview, ReplyRevision
+
+    ticket, agent = _seed_workflow_ticket(db_session)
+    reply = CustomerReply(
+        public_id="REP-904",
+        ticket_id=ticket.id,
+        author_id=agent.id,
+        body="Body",
+        state=ReplyState.PENDING_APPROVAL,
+        version=1,
+        submitted_version=1,
+    )
+    db_session.add(reply)
+    db_session.flush()
+    revision = ReplyRevision(
+        reply_id=reply.id, version=1, body="Body", author_id=agent.id
+    )
+    db_session.add(revision)
+    db_session.flush()
+
+    db_session.add(
+        ReplyReview(
+            reply_id=reply.id,
+            revision_id=revision.id,
+            version=1,
+            decision=ReplyReviewDecision.CHANGES_REQUESTED,
+            reviewer_id=agent.id,
+            reviewer_name=agent.name,
+            comment="   ",
+        )
+    )
+    with pytest.raises(IntegrityError):
+        db_session.flush()
+    db_session.rollback()

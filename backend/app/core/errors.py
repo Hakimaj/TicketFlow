@@ -11,7 +11,13 @@ from typing import Any
 
 
 class ApiError(Exception):
-    """An expected, client-safe API failure."""
+    """An expected, client-safe API failure.
+
+    ``headers`` carries response headers that must survive the error response
+    (for example the cookie-clearing ``Set-Cookie`` sent when a refresh cookie
+    is rejected). Headers written to the injected ``Response`` in a route are
+    discarded once an exception is raised, so exceptions carry their own.
+    """
 
     def __init__(
         self,
@@ -19,12 +25,14 @@ class ApiError(Exception):
         code: str,
         message: str,
         details: list[dict[str, Any]] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.message = message
         self.details = details
+        self.headers = headers
 
 
 def not_found(code: str, message: str) -> ApiError:

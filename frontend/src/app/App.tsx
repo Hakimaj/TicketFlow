@@ -1,12 +1,15 @@
 import { AppRouter } from './router'
 import { DefaultLandingRedirect } from './default-landing'
 import { PreferencesProvider } from './preferences-provider'
+import { AuthProvider } from '@/auth'
 
 export default function App() {
   return (
     <PreferencesProvider>
-      <DefaultLandingRedirect />
-      <AppRouter />
+      <AuthProvider>
+        <DefaultLandingRedirect />
+        <AppRouter />
+      </AuthProvider>
     </PreferencesProvider>
   )
 }

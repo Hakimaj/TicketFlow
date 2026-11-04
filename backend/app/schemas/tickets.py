@@ -77,6 +77,13 @@ class TicketSummary(BaseModel):
     assigned_team: SupportTeam | None
     assigned_agent_id: str | None
     assigned_agent_name: str | None
+    version: int = Field(
+        ge=1,
+        description=(
+            "Concurrency token. Triaging mutations must send the version they "
+            "last read as `expected_version`."
+        ),
+    )
     created_at: UtcDatetime
     updated_at: UtcDatetime
 
@@ -102,46 +109,129 @@ class TicketListResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Intake (Phase 10)
+# ---------------------------------------------------------------------------
+
+
+class TicketCreate(BaseModel):
+    """Staff intake payload.
+
+    Deliberately small: a support request needs a requester, a subject, the
+    message body, a category and a priority. No marketing or profile fields are
+    collected, and there is no actor/role/status field — the creator comes from
+    the access token and new tickets always start as ``new``.
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "subject": "Refund not received for order #ET-88412",
+                "description": (
+                    "The order was returned two weeks ago and the refund has "
+                    "not appeared on my statement."
+                ),
+                "category": "billing",
+                "priority": "normal",
+                "channel": "web_form",
+                "requester_name": "Marta Alemu",
+                "requester_email": "marta.alemu@example.com",
+            }
+        }
+    )
+
+    subject: str = Field(
+        min_length=3,
+        max_length=300,
+        description="Concise summary of the request.",
+    )
+    description: str = Field(
+        min_length=10,
+        max_length=5000,
+        description="The customer's message, as received.",
+    )
+    category: TicketCategory = Field(description="Triage category for the request.")
+    priority: TicketPriority = Field(
+        default=TicketPriority.NORMAL,
+        description="Defaults to `normal` when the intake channel has no signal.",
+    )
+    channel: TicketChannel = Field(
+        default=TicketChannel.WEB_FORM,
+        description="Where the request arrived. Defaults to `web_form`.",
+    )
+    requester_name: str = Field(
+        min_length=2,
+        max_length=160,
+        description="Name of the customer who reported the issue.",
+    )
+    requester_email: str = Field(
+        min_length=3,
+        max_length=254,
+        description=(
+            "Customer email. Reused when it already exists, so one customer "
+            "can own several tickets."
+        ),
+    )
+
+    @field_validator("subject", "description", "requester_name")
+    @classmethod
+    def _reject_blank(cls, value: str) -> str:
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("This field cannot be blank.")
+        return trimmed
+
+    @field_validator("requester_email")
+    @classmethod
+    def _normalize_email(cls, value: str) -> str:
+        # Stored lower-case so an existing requester is reused instead of
+        # duplicated by casing.
+        normalized = value.strip().lower()
+        if "@" not in normalized or normalized.startswith("@") or normalized.endswith("@"):
+            raise ValueError("A valid customer email address is required.")
+        return normalized
+
+
+# ---------------------------------------------------------------------------
 # Mutation request bodies (Phase 6)
 # ---------------------------------------------------------------------------
 
 
-class ActorContext(BaseModel):
-    """Development-only actor metadata.
+# Mutation bodies intentionally carry no actor/role fields: the acting account
+# is derived from the access token. Unknown extra fields are ignored by
+# Pydantic, so a caller-supplied `actor_id` cannot influence attribution.
 
-    There is no authentication yet. ``actor_id`` selects which seeded agent is
-    recorded in the audit event and is therefore **untrusted**: any caller can
-    claim any agent. It defaults to the seeded demo agent.
+
+class TicketMutation(BaseModel):
+    """Shared optimistic-concurrency precondition for triage mutations.
+
+    The version is a precondition only; authorization always comes from the
+    verified account. A stale value is rejected with ``409`` so two operators
+    cannot silently overwrite each other's work.
     """
 
-    actor_id: str | None = Field(
-        default=None,
-        max_length=16,
+    expected_version: int = Field(
+        ge=1,
         description=(
-            "Development-only actor identifier. Untrusted until server-side "
-            "authentication exists; defaults to the demo agent."
+            "`version` of the ticket the client last read. Omit-proof: the "
+            "server rejects stale versions and never retries on the caller's "
+            "behalf."
         ),
     )
 
-    @field_validator("actor_id")
-    @classmethod
-    def _normalize_actor_id(cls, value: str | None) -> str | None:
-        return value.strip().upper() if value and value.strip() else None
 
-
-class TicketStatusUpdate(ActorContext):
+class TicketStatusUpdate(TicketMutation):
     status: TicketStatus = Field(description="New ticket status.")
 
 
-class TicketPriorityUpdate(ActorContext):
+class TicketPriorityUpdate(TicketMutation):
     priority: TicketPriority = Field(description="New ticket priority.")
 
 
-class TicketCategoryUpdate(ActorContext):
+class TicketCategoryUpdate(TicketMutation):
     category: TicketCategory = Field(description="New ticket category.")
 
 
-class TicketAssignmentUpdate(ActorContext):
+class TicketAssignmentUpdate(TicketMutation):
     # Required but nullable: omitting the field is a validation error, while an
     # explicit null deliberately unassigns the ticket.
     agent_id: str | None = Field(

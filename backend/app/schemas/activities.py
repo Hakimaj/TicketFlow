@@ -20,8 +20,10 @@ class ActivityResponse(BaseModel):
                 "id": "ACT-040",
                 "ticket_id": "TF-1051",
                 "reply_id": None,
+                "reply_version": None,
                 "note_id": None,
                 "actor_id": "AG-02",
+                "actor_account_id": "0d4f0b6e-8a51-4c47-9d2b-1f0a2c3d4e5f",
                 "actor_name": "Hana Tesfaye",
                 "actor_type": "agent",
                 "action": "assigned",
@@ -37,12 +39,25 @@ class ActivityResponse(BaseModel):
     reply_id: str | None = Field(
         default=None, description="Public reply identifier when reply-related."
     )
+    reply_version: int | None = Field(
+        default=None,
+        description=(
+            "Exact reply revision this event refers to, when applicable."
+        ),
+    )
     note_id: str | None = Field(
         default=None, description="Note UUID when the event was a note addition."
     )
     actor_id: str | None = Field(
         default=None,
         description="Agent identifier when the actor is a known agent.",
+    )
+    actor_account_id: str | None = Field(
+        default=None,
+        description=(
+            "Verified account that performed the action. Null for historical "
+            "events recorded before authentication existed."
+        ),
     )
     actor_name: str = Field(description="Actor display label snapshot.")
     actor_type: ActivityActorType

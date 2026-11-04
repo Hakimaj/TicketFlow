@@ -43,7 +43,11 @@ import {
   DEMO_TICKETS,
   DEMO_USER,
 } from '@/data'
-import { TicketServiceError, type TicketService } from './ticketService'
+import {
+  TicketServiceError,
+  type NewTicketInput,
+  type TicketService,
+} from './ticketService'
 
 /**
  * Phase 1 & 2 data source: the demonstration dataset, held in memory.
@@ -294,6 +298,58 @@ export class DemoTicketService implements TicketService {
     return this.activities
       .filter((a) => a.ticketId === ticketId)
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+  }
+
+  async createTicket(input: NewTicketInput): Promise<Ticket> {
+    await delay(SIMULATED_LATENCY_MS)
+    const subject = input.subject.trim()
+    if (!subject) {
+      throw new TicketServiceError('A subject is required.')
+    }
+
+    const now = new Date()
+    const priority = input.priority ?? 'normal'
+    const nextNumber =
+      Math.max(
+        1000,
+        ...this.tickets.map((ticket) => Number(ticket.id.split('-')[1]) || 0),
+      ) + 1
+    const ticket: Ticket = {
+      id: `TF-${nextNumber}`,
+      subject,
+      description: input.description.trim(),
+      requesterName: input.requesterName.trim(),
+      requesterEmail: input.requesterEmail.trim().toLowerCase(),
+      channel: input.channel ?? 'web_form',
+      category: input.category,
+      priority,
+      status: 'new',
+      assignedTeam: CATEGORY_TEAM[input.category],
+      assignedAgentId: null,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      dueAt:
+        priority === 'urgent' || priority === 'high'
+          ? new Date(now.getTime() + 8 * 3600 * 1000).toISOString()
+          : null,
+      suggestedCategory: null,
+      suggestedPriority: null,
+      reviewNote: null,
+      version: 1,
+    }
+
+    this.tickets.unshift(ticket)
+    this.activities.push({
+      id: `ACT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      ticketId: ticket.id,
+      actorName: DEMO_USER.name,
+      actorType: 'agent',
+      action: 'created',
+      detail: `Ticket created via ${CHANNEL_LABELS[ticket.channel].toLowerCase()} intake.`,
+      createdAt: now.toISOString(),
+    })
+    this.notify()
+    return { ...ticket }
   }
 
   async updateStatus(id: string, status: TicketStatus, agent: Agent = DEMO_USER): Promise<Ticket> {

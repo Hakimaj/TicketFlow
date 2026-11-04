@@ -7,6 +7,7 @@ import {
   ShieldCheck,
   Ticket,
   UserRound,
+  UsersRound,
 } from 'lucide-react'
 import type { ComponentType } from 'react'
 
@@ -19,6 +20,7 @@ export type NavScope =
   | 'reply_approvals'
   | 'analytics'
   | 'activity'
+  | 'accounts'
   | 'settings'
   | 'ticket_detail'
 
@@ -36,6 +38,10 @@ export interface NavItem {
   icon: ComponentType<{ className?: string; 'aria-hidden'?: boolean | 'true' | 'false' }>
   /** Items with counters render a badge when count > 0. */
   counter?: 'unassigned' | 'needs_review' | 'pending_approvals'
+  /** Permission required to see the destination (server enforces it too). */
+  permission?: string
+  /** Feature that needs the API; hidden in explicit demo mode. */
+  apiOnly?: boolean
   description: string
 }
 
@@ -62,7 +68,7 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'My Tickets',
     path: '/tickets/mine',
     icon: UserRound,
-    description: 'Assigned to the demo user',
+    description: 'Assigned to your agent profile',
   },
   {
     key: 'unassigned',
@@ -86,6 +92,7 @@ export const NAV_ITEMS: NavItem[] = [
     path: '/approvals',
     icon: ShieldCheck,
     counter: 'pending_approvals',
+    permission: 'replies:review',
     description: 'Review and approve customer replies',
   },
   {
@@ -101,5 +108,16 @@ export const NAV_ITEMS: NavItem[] = [
     path: '/activity',
     icon: ScrollText,
     description: 'System and agent audit trail',
+  },
+  {
+    key: 'accounts',
+    label: 'Accounts',
+    path: '/accounts',
+    icon: UsersRound,
+    permission: 'accounts:manage',
+    // Account provisioning exists only in the persistent API; demo mode has
+    // no backend to manage, so the entry is omitted instead of erroring.
+    apiOnly: true,
+    description: 'Provision staff accounts and manage access',
   },
 ]

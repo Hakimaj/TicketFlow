@@ -1,24 +1,43 @@
-# TicketFlow frontend (Phase 4)
+# TicketFlow frontend (Phase 9: release readiness)
 
 Support-ticket workspace built with React 19, TypeScript (strict), Vite 7,
 Tailwind CSS 4, shadcn/ui-style components (Radix primitives + CVA),
-React Router 7, Lucide icons and Recharts 3.
+React Router 7, Lucide icons and Recharts 3. It talks to the TicketFlow API by
+default and signs users in against `/api/v1/auth`.
+
+Phase 9 adds the containerised production build (`Dockerfile` + `nginx.conf`,
+serving the SPA and proxying `/api/` on one origin) and runs these gates in CI
+on every push and pull request.
 
 ## Run locally
 
 ```bash
 npm install
+
+# API mode (default): start the backend first
+#   cd ../backend && python -m uvicorn app.main:app --reload --port 8000
 npm run dev       # http://localhost:5173
+
+# Explicit in-memory demo mode (no backend, visible demo banner)
+VITE_DATA_MODE=demo npm run dev
 ```
+
+Data-source configuration lives in `src/config/app-mode.ts`:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `VITE_DATA_MODE` | `api` | Only the exact value `demo` selects the in-memory fixtures. Anything else (including unset) uses the API. |
+| `VITE_API_BASE_URL` | `http://127.0.0.1:8000/api/v1` in dev, `/api/v1` in production | API origin. No credentials belong in frontend env files. |
 
 Quality gates (all passing):
 
 ```bash
 npm run lint
 npm run typecheck
-npm test          # Vitest domain tests (workflow, analytics, activity, preferences)
+npm test          # Vitest domain, contract, mode-selection and session tests
 npm run build
-npm run test:e2e  # Playwright browser tests (uses locally installed Google Chrome)
+npm run test:e2e      # Playwright demo-mode browser tests (installed Chrome)
+npm run test:e2e:api  # Playwright workflow against a real backend + disposable *_e2e DB
 npm run preview   # serve dist/ at http://localhost:4173
 ```
 
@@ -27,11 +46,20 @@ channel, so no browser binary download is required. Set
 `PLAYWRIGHT_BROWSERS_PATH` or adjust `playwright.config.ts` if Chrome is not
 installed locally.
 
+The API-backed config (`playwright.api.config.ts`) launches the backend with the
+repository virtualenv interpreter by default; override it with
+`E2E_PYTHON=python` (as CI does) on any other layout. It recreates an isolated
+`*_e2e` database through `backend/scripts/e2e_prepare.py` and never touches the
+development database.
+
 ## Architecture
 
 ```
 src/
-  app/                  App wiring, router, preferences provider, start page
+  app/                  App wiring, router (session guard), preferences, start page
+  auth/                 AuthProvider, useAuth, route guard, permission mirror
+  config/               Data-mode + API base URL resolution
+  features/auth/        Sign-in page
   components/
     layout/             Sidebar, top header, app shell, nav config
     shared/             Cross-feature building blocks: badges, metric card,
@@ -47,23 +75,24 @@ src/
     approvals/          Reply Approvals supervisor review queue
     analytics/          Derived analytics page, charts, range-aware hook
     activity/           Sanitized activity log, filters, facets, hook
-    settings/           Demo profile, local preferences, workflow reference
+    settings/           Signed-in account, local preferences, workflow reference
   types/                Domain models (Ticket, Agent, TicketActivity,
-                        CustomerReply, queries, analytics, activity log)
-  data/                 Demonstration fixtures (separate from UI/services),
-                        including demo replies in `demo-replies.ts`
-  services/             TicketService interface + DemoTicketService
-                        implementation + reserved HTTP client placeholder
+                        CustomerReply, AccountProfile, queries, analytics,
+                        activity log)
+  data/                 Demonstration fixtures, used only in demo mode
+  services/             TicketService interface, HttpTicketService (default),
+                        DemoTicketService, apiClient, authService
   lib/                  cn(), formatting, ticket/activity config maps, shared
                         chart colors, reply templates, preference validation
-e2e/                    Playwright browser workflows
+e2e/                    Playwright demo-mode browser workflows
+e2e-api/                Playwright workflows against the real backend
 ```
 
 Key rules enforced by this structure:
 
-- Feature code only ever calls the `TicketService` interface
-  (`src/services/index.ts` resolves a `DemoTicketService` today; a later phase
-  swaps the implementation for HTTP calls behind the same interface).
+- Feature code only ever calls the `TicketService` interface.
+  `src/services/index.ts` resolves `HttpTicketService` by default and
+  `DemoTicketService` only in explicit demo mode.
 - Mock data lives exclusively in `src/data/`; no component carries ticket or
   reply fixtures. Assignee names come from `listAgents()`.
 - Dashboard numbers, analytics, activity facets and the pending-approval
@@ -71,11 +100,12 @@ Key rules enforced by this structure:
   read from fixture arrays in components.
 - Status and priority are separate typed unions; badges always pair an icon
   with text so color is never the only signal.
-- The demo user (`Abebe Kebede`) is labelled as a demo user in the UI. No
-  authentication or role-in-localStorage exists in this phase.
-- The reply approval gate is enforced in `DemoTicketService`, not just by
-  hiding buttons. `markReplySent` rejects any reply that is not currently
-  approved.
+- Identity comes from the API session, never from the browser. The access
+  token lives in module memory only; no ticket, reply or credential is written
+  to `localStorage` (only the two presentation preferences are).
+- Role-based UI (hidden navigation, hidden review actions) mirrors the server
+  policy, which re-checks every endpoint. The reply approval gate and
+  self-approval prevention are enforced server-side, not by hiding buttons.
 
 ## Reply drafting and approval workflow
 
@@ -139,9 +169,9 @@ all data. It does not import fixtures or invent KPIs.
 
 ## Settings
 
-`/settings` shows the demo profile and explicitly states that it is not an
-authenticated account. Two preferences are genuinely applied and stored only in
-this browser under `ticketflow.preferences.v1`:
+`/settings` shows the signed-in account (or the labelled demo account in demo
+mode), the role and the session state. Two preferences are genuinely applied
+and stored only in this browser under `ticketflow.preferences.v1`:
 
 - table density (`comfortable` / `compact`) via `data-density` on `<html>`;
 - default landing page, applied when the app starts at `/` in a new tab/reload.
@@ -152,7 +182,7 @@ maps in `src/lib/ticket-config.ts` and `src/types/reply.ts`. The integration
 status section is read-only and honest: there are no dead Save, Connect or Test
 buttons.
 
-## Demonstration dataset
+## Demonstration dataset (demo mode only)
 
 `src/data/demo-tickets.ts` contains ~24 hand-written tickets plus ~56 older
 tickets from a seeded generator (fixed PRNG), so trend charts span 30 days
@@ -172,17 +202,33 @@ sensible; nothing refreshes fake-live.
 - `src/services/__tests__/analytics-activity.test.ts` verifies analytics
   derivations, window semantics, current-state distinction, activity privacy,
   filtering, sorting, pagination and facets.
+- `src/services/__tests__/http-service-contract.test.ts` asserts the exact
+  backend paths and bodies (status/priority/category/assignment endpoints,
+  notes, ticket-scoped activity plus note join, dashboard status counts, reply
+  version checks, the draft-upsert fallback and demo-send mapping) using a
+  stubbed `fetch`.
+- `src/services/__tests__/app-mode.test.ts` proves API mode is the default and
+  demo mode requires an explicit setting.
+- `src/auth/__tests__/auth-session.test.ts` covers sign-in, refresh restore,
+  logout clearing the in-memory token, one-shot refresh-and-retry on `401`, and
+  the unauthorized callback when refresh fails.
 - `src/lib/__tests__/preferences.test.ts` verifies preference validation and
   safe fallbacks.
-- `e2e/app.spec.ts` runs seven real browser workflows: navigation/active
+- `e2e/app.spec.ts` runs seven demo-mode browser workflows: navigation/active
   state, analytics range/metric links, analytics + activity propagation after
   a triage edit, activity search/filter/privacy, settings persistence and start
   page, the full ticket → reply → approve → demo-send flow (including live
   sidebar counters), and mobile navigation/overflow.
+- `e2e-api/workflow.spec.ts` runs the authenticated workflow against a real
+  backend and a freshly migrated/seeded disposable database: agent sign-in,
+  triage + internal note, reply submission, no self-approval, reviewer
+  approval that does not send, explicit demo send, reload persistence, logout
+  and `401` on protected endpoints.
 
 ```bash
 npm test
-npm run test:e2e
+npm run test:e2e      # demo mode
+npm run test:e2e:api  # real backend + isolated e2e database
 ```
 
 ## Demo controls
@@ -193,19 +239,22 @@ demo affordance, clearly labelled as one.
 
 ## Honest limitations
 
-- No backend: data lives in memory and resets on reload. There is no
-  persistence, authentication, email delivery or external messaging.
-- "Mark as Sent (Demo)" only records local state; no customer receives a
-  message. Client-side restrictions are workflow guards, not production
-  security.
-- Approval actions use the single demo supervisor identity. Distinct reviewer
-  accounts and role-based permissions arrive with a real backend.
+- Demo mode is the only in-memory mode and must be enabled explicitly; it shows
+  a persistent banner and resets on reload.
+- "Mark as Sent (Demo)" records a simulated application action; no customer
+  receives a message. No email/SMS/chat provider is integrated.
+- Reply approval, revision history and self-approval prevention are enforced by
+  the API; client-side hiding is only a usability aid.
 - Ticket creation (New Ticket) remains an explicitly labelled preview dialog.
-- Analytics and activity calculations run in the browser against demo records;
-  there are no stored historical snapshots.
-- Verification includes type-check, lint, 39 Vitest tests, a production build
-  and 7 Playwright tests in Google Chrome. Visual regression testing is not
-  included.
+- Analytics and activity figures are composed in the browser from paged API
+  data because there is no dedicated analytics/facet endpoint yet.
+- Sign-in throttling is server-side but per process; a multi-instance deployment
+  needs a shared limiter and TLS in front of the API.
+- Verification includes type-check, lint, 61 Vitest tests, a production build,
+  7 demo-mode Playwright tests and 1 API-mode Playwright workflow in Google
+  Chrome. Visual regression testing is not included.
+- The container serves plain HTTP and expects a TLS-terminating proxy in front
+  of it; see `../docs/architecture/deployment.md`.
 
-See `../docs/frontend-backend-integration.md` for the existing service contract,
-state rules and clearly labelled proposals for future backend work.
+See `../docs/frontend-backend-integration.md` for the service contract, session
+flow and the remaining backend gaps.

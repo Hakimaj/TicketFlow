@@ -19,6 +19,7 @@ from app.core.labels import ACTIVITY_ACTION_LABELS
 from app.models.activity import TicketActivity
 from app.models.agent import Agent
 from app.models.enums import ActivityAction, ActivityActorType
+from app.models.reply import CustomerReply
 from app.models.ticket import Ticket
 from app.models.common import utcnow
 from app.schemas.tickets import SortDirection
@@ -47,14 +48,25 @@ def add_activity(
     action: ActivityAction,
     detail: str,
     note_id: uuid.UUID | None = None,
+    reply: CustomerReply | None = None,
+    reply_version: int | None = None,
     is_internal_note: bool = False,
+    actor_account_id: uuid.UUID | None = None,
 ) -> TicketActivity:
-    """Stage an activity event in the caller's transaction (no commit)."""
+    """Stage an activity event in the caller's transaction (no commit).
+
+    ``reply``/``reply_version`` link the event to the logical reply and the
+    exact immutable revision it describes. The detail stays a short, safe
+    summary; reply bodies and reviewer comments are never copied into it.
+    """
     activity = TicketActivity(
         public_id=new_public_id(),
         ticket_id=ticket.id,
+        reply_id=reply.id if reply is not None else None,
+        reply_version=reply_version,
         note_id=note_id,
         actor_id=actor.id,
+        actor_account_id=actor_account_id,
         actor_name=actor.name,
         actor_type=ActivityActorType.AGENT,
         action=action,

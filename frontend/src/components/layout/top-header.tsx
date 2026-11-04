@@ -11,16 +11,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { MobileSidebar, UserMenu } from './sidebar'
 import type { NavCounts, NavScope } from './nav-config'
 import { cn } from '@/lib/utils'
@@ -34,6 +24,7 @@ const TITLES: Record<NavScope, { title: string; crumb?: string }> = {
   reply_approvals: { title: 'Reply Approvals', crumb: 'Workflow' },
   analytics: { title: 'Analytics' },
   activity: { title: 'Activity Logs' },
+  accounts: { title: 'Accounts' },
   settings: { title: 'Settings' },
   ticket_detail: { title: 'Ticket details', crumb: 'Tickets' },
 }
@@ -42,6 +33,7 @@ function resolveRoute(pathname: string): NavScope {
   if (pathname === '/') return 'overview'
   if (pathname === '/analytics') return 'analytics'
   if (pathname === '/activity') return 'activity'
+  if (pathname === '/accounts') return 'accounts'
   if (pathname.startsWith('/settings')) return 'settings'
   if (pathname === '/tickets/mine') return 'mine'
   if (pathname === '/tickets/unassigned') return 'unassigned'
@@ -51,63 +43,12 @@ function resolveRoute(pathname: string): NavScope {
   return 'all'
 }
 
-/* --------------------------- New ticket dialog --------------------------- */
-
-function NewTicketDialog({
-  open,
-  onOpenChange,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-}) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Create a new ticket</DialogTitle>
-          <DialogDescription>
-            New-ticket intake is not part of this demo frontend. It will arrive
-            with the backend integration; this preview does not submit anything.
-          </DialogDescription>
-        </DialogHeader>
-        <div aria-hidden="true" className="space-y-3 opacity-50">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1">
-              <Label>Requester</Label>
-              <Input disabled placeholder="Customer name or email" />
-            </div>
-            <div className="space-y-1">
-              <Label>Channel</Label>
-              <Input disabled placeholder="Email / web form / chat" />
-            </div>
-          </div>
-          <div className="space-y-1">
-            <Label>Subject</Label>
-            <Input disabled placeholder="Short summary of the issue" />
-          </div>
-          <div className="space-y-1">
-            <Label>Description</Label>
-            <Input disabled placeholder="What went wrong, and when?" />
-          </div>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Demo environment — no data is stored or sent anywhere.
-        </p>
-        <DialogFooter>
-          <Button onClick={() => onOpenChange(false)}>Got it</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
 /* ------------------------------ Header core ------------------------------ */
 
 export function TopHeader({ counts }: { counts?: NavCounts }) {
   const { pathname } = useLocation()
   const navigate = useNavigate()
   const [drawerOpen, setDrawerOpen] = React.useState(false)
-  const [newTicketOpen, setNewTicketOpen] = React.useState(false)
   const [search, setSearch] = React.useState('')
 
   const resolved = resolveRoute(pathname)
@@ -177,7 +118,7 @@ export function TopHeader({ counts }: { counts?: NavCounts }) {
         <Button
           size="sm"
           className="hidden sm:inline-flex"
-          onClick={() => setNewTicketOpen(true)}
+          onClick={() => navigate('/tickets/new')}
         >
           <Plus aria-hidden="true" />
           New Ticket
@@ -186,8 +127,8 @@ export function TopHeader({ counts }: { counts?: NavCounts }) {
           variant="ghost"
           size="icon"
           className="sm:hidden"
-          aria-label="New ticket (preview)"
-          onClick={() => setNewTicketOpen(true)}
+          aria-label="New ticket"
+          onClick={() => navigate('/tickets/new')}
         >
           <Plus aria-hidden="true" />
         </Button>
@@ -212,10 +153,10 @@ export function TopHeader({ counts }: { counts?: NavCounts }) {
             <DropdownMenuItem disabled>
               <span className="flex flex-col items-start gap-0.5">
                 <span className="text-sm font-medium text-foreground">
-                  Demo environment
+                  No new notifications
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  Live notification rules arrive with the backend integration.
+                  Workflow updates appear in Activity Logs.
                 </span>
               </span>
             </DropdownMenuItem>
@@ -227,7 +168,6 @@ export function TopHeader({ counts }: { counts?: NavCounts }) {
         </div>
       </div>
 
-      <NewTicketDialog open={newTicketOpen} onOpenChange={setNewTicketOpen} />
     </header>
   )
 }

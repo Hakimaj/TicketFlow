@@ -262,7 +262,7 @@ export function ActivityLogsPage() {
         {error ? (
           <ErrorState
             title="Activity logs could not be loaded"
-            description="The shared demo service did not return the audit trail."
+            description="The activity service did not return the audit trail."
             onRetry={reload}
           />
         ) : loading && !result ? (

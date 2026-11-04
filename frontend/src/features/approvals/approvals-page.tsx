@@ -25,7 +25,7 @@ import {
 } from '@/lib/ticket-config'
 import { formatDateTime, formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { DEMO_USER } from '@/data'
+import { useAuth } from '@/auth'
 import { ticketService } from '@/services'
 import { PageHeader } from '@/components/shared/page-header'
 import { ConfirmDialog } from '@/components/shared/confirm-dialog'
@@ -117,6 +117,9 @@ function ReplyStateBadge({ state }: { state: ReplyState }) {
 }
 
 export function ApprovalsPage() {
+  const { user } = useAuth()
+  const currentUserName =
+    user?.agent_name ?? user?.display_name ?? 'your account'
   const [items, setItems] = React.useState<ReplyItem[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<Error | null>(null)
@@ -255,7 +258,7 @@ export function ApprovalsPage() {
   async function handleApprove(replyId: string) {
     setIsSubmitting(true)
     try {
-      await ticketService.approveReply(replyId, DEMO_USER)
+      await ticketService.approveReply(replyId)
       setReviewItem(null)
       showNotification('Customer reply approved. Ready for sending.')
     } catch (err) {
@@ -276,7 +279,7 @@ export function ApprovalsPage() {
     setFeedbackError(null)
     setIsSubmitting(true)
     try {
-      await ticketService.requestReplyChanges(reviewItem.reply.id, trimmed, DEMO_USER)
+      await ticketService.requestReplyChanges(reviewItem.reply.id, trimmed)
       setReviewItem(null)
       setIsRequestingChanges(false)
       setFeedbackText('')
@@ -291,7 +294,7 @@ export function ApprovalsPage() {
   async function handleMarkSent(replyId: string) {
     setIsSubmitting(true)
     try {
-      await ticketService.markReplySent(replyId, DEMO_USER)
+      await ticketService.markReplySent(replyId)
       showNotification('Customer reply marked as sent in demo mode. Ticket status set to Pending.')
     } catch (err) {
       showNotification(err instanceof Error ? err.message : 'Approval gate rejected send action.', 'error')
@@ -566,7 +569,8 @@ export function ApprovalsPage() {
                         {ticket.subject}
                       </Link>
                       <p className="text-xs text-muted-foreground">
-                        Customer: <span className="font-medium text-foreground">{ticket.requesterName}</span> &lt;{ticket.requesterEmail}&gt;
+                        Customer: <span className="font-medium text-foreground">{ticket.requesterName}</span>
+                        {ticket.requesterEmail ? <> &lt;{ticket.requesterEmail}&gt;</> : null}
                       </p>
 
                       {/* Reply body preview */}
@@ -690,17 +694,25 @@ export function ApprovalsPage() {
                 </div>
                 <div className="flex flex-wrap items-center gap-4 text-muted-foreground text-2xs">
                   <span>Customer: <strong className="text-foreground">{reviewItem.ticket.requesterName}</strong></span>
-                  <span>Email: {reviewItem.ticket.requesterEmail}</span>
+                  {reviewItem.ticket.requesterEmail ? (
+                    <span>Email: {reviewItem.ticket.requesterEmail}</span>
+                  ) : null}
                   <span>Received: {formatDateTime(reviewItem.ticket.createdAt)}</span>
                 </div>
-                <div className="mt-1 rounded border border-border/80 bg-background/80 p-2.5 text-muted-foreground leading-relaxed">
-                  <p className="font-semibold text-2xs text-foreground uppercase tracking-wide mb-1">
-                    Customer Inquiry:
+                {reviewItem.ticket.description ? (
+                  <div className="mt-1 rounded border border-border/80 bg-background/80 p-2.5 text-muted-foreground leading-relaxed">
+                    <p className="font-semibold text-2xs text-foreground uppercase tracking-wide mb-1">
+                      Customer Inquiry:
+                    </p>
+                    <p className="line-clamp-4 whitespace-pre-line text-xs text-foreground">
+                      {reviewItem.ticket.description}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="mt-1 text-2xs text-muted-foreground">
+                    Open the ticket to read the full customer inquiry.
                   </p>
-                  <p className="line-clamp-4 whitespace-pre-line text-xs text-foreground">
-                    {reviewItem.ticket.description}
-                  </p>
-                </div>
+                )}
               </div>
 
               {/* Proposed Reply Content */}
@@ -827,7 +839,7 @@ export function ApprovalsPage() {
         title="Mark this reply as sent?"
         description={
           sendTarget
-            ? `This records reply v${sendTarget.reply.version} for ${sendTarget.ticket.id} as sent by ${DEMO_USER.name} (demo mode). No email is actually delivered.`
+            ? `This records reply v${sendTarget.reply.version} for ${sendTarget.ticket.id} as sent by ${currentUserName} (demo mode). No email is actually delivered.`
             : undefined
         }
         confirmLabel="Mark as Sent (Demo)"

@@ -13,17 +13,17 @@ from tests.conftest import FIXED_ANCHOR
 from tests.helpers import activity_rows, note_rows, ticket_row
 
 
-def _create(client: TestClient, ticket: str, content: str, **extra):
-    return client.post(
+def _create(auth_client: TestClient, ticket: str, content: str, **extra):
+    return auth_client.post(
         f"/api/v1/tickets/{ticket}/notes", json={"content": content, **extra}
     )
 
 
 def test_create_note_persists_record_and_safe_audit(
-    client: TestClient, session_factory, seeded: None
+    auth_client: TestClient, session_factory, seeded: None
 ) -> None:
     before = ticket_row(session_factory, "TF-1051")
-    response = _create(client, "TF-1051", "  Customer confirmed the reversal window.  ")
+    response = _create(auth_client, "TF-1051", "  Customer confirmed the reversal window.  ")
 
     assert response.status_code == 201, response.text
     body = response.json()
@@ -50,27 +50,37 @@ def test_create_note_persists_record_and_safe_audit(
     assert event["actor_id"] == "AG-01"
 
 
-def test_note_author_override_and_invalid_actor(
-    client: TestClient, session_factory, seeded: None
+def test_note_author_ignores_client_supplied_actor(
+    auth_client: TestClient, session_factory, seeded: None
 ) -> None:
-    response = _create(
-        client, "TF-1051", "Handoff to billing.", actor_id="ag-02"
+    # The authenticated account is authoritative; caller-supplied attribution
+    # fields must never change who is recorded.
+    spoofed = _create(
+        auth_client, "TF-1051", "Handoff to billing.", actor_id="ag-02"
     )
-    assert response.status_code == 201
-    assert response.json()["author"] == {"id": "AG-02", "name": "Hana Tesfaye"}
-    assert activity_rows(session_factory, "TF-1051")[-1]["actor_id"] == "AG-02"
+    assert spoofed.status_code == 201
+    assert spoofed.json()["author"] == {"id": "AG-01", "name": "Abebe Kebede"}
+    assert activity_rows(session_factory, "TF-1051")[-1]["actor_id"] == "AG-01"
 
-    invalid = _create(client, "TF-1051", "Nope.", actor_id="AG-999")
-    assert invalid.status_code == 422
-    assert invalid.json()["error"]["code"] == "invalid_actor"
-    assert len(note_rows(session_factory, "TF-1051")) == 1
+    unknown = _create(
+        auth_client,
+        "TF-1051",
+        "Nope.",
+        actor_id="AG-999",
+        role="admin",
+    )
+    assert unknown.status_code == 201
+    assert unknown.json()["author"] == {"id": "AG-01", "name": "Abebe Kebede"}
+    stored = note_rows(session_factory, "TF-1051")
+    assert len(stored) == 2
+    assert {row["author_id"] for row in stored} == {"AG-01"}
 
 
 def test_blank_whitespace_and_oversized_notes_rejected(
-    client: TestClient, session_factory, seeded: None
+    auth_client: TestClient, session_factory, seeded: None
 ) -> None:
     for content in ("", "   \n\t ", "x" * 4001):
-        response = _create(client, "TF-1051", content)
+        response = _create(auth_client, "TF-1051", content)
         assert response.status_code == 422, content[:20]
         error = response.json()["error"]
         assert error["code"] == "validation_error"
@@ -81,20 +91,20 @@ def test_blank_whitespace_and_oversized_notes_rejected(
 
 
 def test_maximum_length_note_is_accepted(
-    client: TestClient, seeded: None
+    auth_client: TestClient, seeded: None
 ) -> None:
-    response = _create(client, "TF-1051", "x" * 4000)
+    response = _create(auth_client, "TF-1051", "x" * 4000)
     assert response.status_code == 201
     assert len(response.json()["content"]) == 4000
 
 
 def test_notes_are_scoped_to_their_ticket(
-    client: TestClient, seeded: None
+    auth_client: TestClient, seeded: None
 ) -> None:
-    _create(client, "TF-1051", "Only for 1051.")
+    _create(auth_client, "TF-1051", "Only for 1051.")
 
-    own = client.get("/api/v1/tickets/TF-1051/notes")
-    other = client.get("/api/v1/tickets/TF-1048/notes")
+    own = auth_client.get("/api/v1/tickets/TF-1051/notes")
+    other = auth_client.get("/api/v1/tickets/TF-1048/notes")
 
     assert own.status_code == 200
     assert [item["content"] for item in own.json()["items"]] == ["Only for 1051."]
@@ -105,7 +115,7 @@ def test_notes_are_scoped_to_their_ticket(
 
 
 def test_notes_are_chronological_and_paginated(
-    client: TestClient, session_factory, seeded: None
+    auth_client: TestClient, session_factory, seeded: None
 ) -> None:
     from app.models.note import TicketNote
 
@@ -123,10 +133,10 @@ def test_notes_are_chronological_and_paginated(
             )
         session.commit()
 
-    first = client.get(
+    first = auth_client.get(
         "/api/v1/tickets/TF-1051/notes", params={"page": 1, "page_size": 2}
     )
-    second = client.get(
+    second = auth_client.get(
         "/api/v1/tickets/TF-1051/notes", params={"page": 2, "page_size": 2}
     )
 
@@ -145,14 +155,14 @@ def test_notes_are_chronological_and_paginated(
 
 
 def test_notes_are_not_customer_replies(
-    client: TestClient, session_factory, seeded: None
+    auth_client: TestClient, session_factory, seeded: None
 ) -> None:
     with session_factory() as session:
         replies_before = int(
             session.scalar(select(func.count()).select_from(CustomerReply)) or 0
         )
 
-    response = _create(client, "TF-1051", "Internal only — never send this.")
+    response = _create(auth_client, "TF-1051", "Internal only — never send this.")
     assert response.status_code == 201
 
     with session_factory() as session:
@@ -166,7 +176,7 @@ def test_notes_are_not_customer_replies(
     assert "Internal only — never send this." not in bodies
     assert ticket is not None
 
-    listing = client.get("/api/v1/tickets/TF-1051/notes").json()
+    listing = auth_client.get("/api/v1/tickets/TF-1051/notes").json()
     assert set(listing["items"][0]) == {
         "id",
         "ticket_id",
@@ -178,20 +188,20 @@ def test_notes_are_not_customer_replies(
 
 
 def test_note_body_never_appears_in_activity_metadata(
-    client: TestClient, session_factory, seeded: None
+    auth_client: TestClient, session_factory, seeded: None
 ) -> None:
     marker = "unique-note-body-7f3c9"
-    response = _create(client, "TF-1051", marker)
+    response = _create(auth_client, "TF-1051", marker)
     assert response.status_code == 201
     note_id = response.json()["id"]
 
-    ticket_events = client.get("/api/v1/tickets/TF-1051/activities").json()
+    ticket_events = auth_client.get("/api/v1/tickets/TF-1051/activities").json()
     note_event = next(event for event in ticket_events if event["note_id"] == note_id)
     assert note_event["action"] == "note_added"
     assert note_event["summary"] == "Internal note added."
     assert marker not in note_event["summary"]
 
-    global_events = client.get(
+    global_events = auth_client.get(
         "/api/v1/activities", params={"search": marker}
     ).json()
     assert global_events["pagination"]["total"] == 0
@@ -201,13 +211,13 @@ def test_note_body_never_appears_in_activity_metadata(
     assert marker not in (stored["detail"] or "")
 
 
-def test_unknown_ticket_notes_return_404(client: TestClient, seeded: None) -> None:
-    assert _create(client, "TF-9999", "Nope.").status_code == 404
-    assert client.get("/api/v1/tickets/TF-9999/notes").status_code == 404
+def test_unknown_ticket_notes_return_404(auth_client: TestClient, seeded: None) -> None:
+    assert _create(auth_client, "TF-9999", "Nope.").status_code == 404
+    assert auth_client.get("/api/v1/tickets/TF-9999/notes").status_code == 404
 
 
-def test_invalid_note_pagination_rejected(client: TestClient, seeded: None) -> None:
+def test_invalid_note_pagination_rejected(auth_client: TestClient, seeded: None) -> None:
     for params in ({"page": 0}, {"page_size": 0}, {"page_size": 101}):
-        response = client.get("/api/v1/tickets/TF-1051/notes", params=params)
+        response = auth_client.get("/api/v1/tickets/TF-1051/notes", params=params)
         assert response.status_code == 422
         assert response.json()["error"]["code"] == "validation_error"

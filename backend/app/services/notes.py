@@ -11,7 +11,7 @@ from app.repositories import activities as activity_repo
 from app.repositories import notes as note_repo
 from app.schemas.common import PageMeta
 from app.schemas.notes import NoteAuthor, NoteCreate, NoteListResponse, NoteResponse
-from app.services.agents import resolve_actor
+from app.services.auth import Principal
 from app.services.common import get_ticket_or_404, transaction
 
 
@@ -27,7 +27,11 @@ def _to_response(note: TicketNote, ticket_public_id: str) -> NoteResponse:
 
 
 def create_note(
-    db: Session, ticket_id: str, payload: NoteCreate
+    db: Session,
+    ticket_id: str,
+    payload: NoteCreate,
+    *,
+    principal: Principal,
 ) -> NoteResponse:
     """Create a note and its required audit event atomically.
 
@@ -36,10 +40,14 @@ def create_note(
     ``note_id`` only, never the note body.
     """
     ticket = get_ticket_or_404(db, ticket_id)
-    actor = resolve_actor(db, payload.actor_id)
+    actor = principal.agent
 
     note = note_repo.add_note(
-        db, ticket_id=ticket.id, author_id=actor.id, content=payload.content
+        db,
+        ticket_id=ticket.id,
+        author_id=actor.id,
+        content=payload.content,
+        author_account_id=principal.account_id,
     )
     ticket.updated_at = utcnow()
 
@@ -55,6 +63,7 @@ def create_note(
             detail="Internal note added.",
             note_id=note.id,
             is_internal_note=True,
+            actor_account_id=principal.account_id,
         )
 
     stored = note_repo.get_note(db, note.id)

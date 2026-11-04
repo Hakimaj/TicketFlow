@@ -1,0 +1,14 @@
+# The image installs its own dependencies with `npm ci`.
+node_modules/
+dist/
+test-results/
+playwright-report/
+blob-report/
+
+# Environment overrides are never baked into the image.
+.env
+.env.*
+!.env.example
+
+*.log
+.DS_Store

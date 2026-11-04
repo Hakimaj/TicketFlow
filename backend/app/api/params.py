@@ -15,3 +15,13 @@ TicketIdPath = Annotated[
         examples=["TF-1051"],
     ),
 ]
+
+ReplyIdPath = Annotated[
+    str,
+    Path(
+        min_length=1,
+        max_length=16,
+        description="Public reply identifier, e.g. `REP-101`.",
+        examples=["REP-101"],
+    ),
+]

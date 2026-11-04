@@ -41,6 +41,11 @@ class TicketNote(TimestampMixin, Base):
         nullable=False,
         index=True,
     )
+    author_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("user_accounts.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     content: Mapped[str] = mapped_column(Text, nullable=False)
 
     ticket: Mapped["Ticket"] = relationship(back_populates="notes")

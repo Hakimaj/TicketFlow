@@ -11,9 +11,19 @@ from app.models.note import TicketNote
 
 
 def add_note(
-    db: Session, *, ticket_id: uuid.UUID, author_id: str, content: str
+    db: Session,
+    *,
+    ticket_id: uuid.UUID,
+    author_id: str,
+    content: str,
+    author_account_id: uuid.UUID | None = None,
 ) -> TicketNote:
-    note = TicketNote(ticket_id=ticket_id, author_id=author_id, content=content)
+    note = TicketNote(
+        ticket_id=ticket_id,
+        author_id=author_id,
+        author_account_id=author_account_id,
+        content=content,
+    )
     db.add(note)
     return note
 

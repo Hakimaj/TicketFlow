@@ -8,9 +8,11 @@ from fastapi import APIRouter, Query, status
 
 from app.api.deps import DbSession
 from app.api.params import TicketIdPath
+from app.authorization import CanReadOperations, CanTriage, CurrentAccount
 from app.schemas.common import ErrorResponse
 from app.schemas.notes import NoteCreate, NoteListResponse, NoteResponse
 from app.services import notes as note_service
+from app.services.auth import principal_for
 
 router = APIRouter(prefix="/tickets/{ticket_id}/notes", tags=["notes"])
 
@@ -27,26 +29,32 @@ _ERROR_RESPONSES = {
     response_model=NoteResponse,
     status_code=status.HTTP_201_CREATED,
     responses=_ERROR_RESPONSES,
+    dependencies=[CanTriage],
     summary="Add an internal note",
     description=(
         "Creates a dedicated note record and its audit event atomically. The "
         "audit summary never contains the note body; the event links to the "
         "note via `note_id`. Notes are not customer replies and are never "
-        "sent.\n\n"
-        "`actor_id` is development-only metadata and is not an authenticated "
-        "identity; it defaults to the seeded demo agent."
+        "sent. The author is the authenticated account; caller-supplied "
+        "actor fields are ignored."
     ),
 )
 def create_note(
-    db: DbSession, ticket_id: TicketIdPath, payload: NoteCreate
+    db: DbSession,
+    account: CurrentAccount,
+    ticket_id: TicketIdPath,
+    payload: NoteCreate,
 ) -> NoteResponse:
-    return note_service.create_note(db, ticket_id, payload)
+    return note_service.create_note(
+        db, ticket_id, payload, principal=principal_for(account)
+    )
 
 
 @router.get(
     "",
     response_model=NoteListResponse,
     responses=_ERROR_RESPONSES,
+    dependencies=[CanReadOperations],
     summary="List internal notes",
     description=(
         "Returns notes for this ticket only, oldest first, with stable "

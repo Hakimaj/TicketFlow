@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 
 from app.api.deps import DbSession
+from app.authorization import CanReadOperations
 from app.models.enums import AgentRole, SupportTeam
 from app.schemas.agents import AgentListResponse
 from app.schemas.common import ErrorResponse
@@ -23,6 +24,7 @@ router = APIRouter(prefix="/agents", tags=["agents"])
         500: {"model": ErrorResponse, "description": "Unexpected server error."},
         503: {"model": ErrorResponse, "description": "Database unavailable."},
     },
+    dependencies=[CanReadOperations],
     summary="List support agents",
     description=(
         "Returns the small operational roster from PostgreSQL, ordered by "

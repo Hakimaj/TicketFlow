@@ -28,6 +28,7 @@ import {
   STATUS_LABELS,
 } from '@/lib/ticket-config'
 import { formatDate, formatDateTime } from '@/lib/format'
+import { isDemoMode } from '@/config/app-mode'
 import { REPLY_STATE_LABELS } from '@/types/reply'
 import type { AnalyticsRange } from '@/types/analytics'
 import { cn } from '@/lib/utils'
@@ -50,9 +51,9 @@ function rangeLabel(range: AnalyticsRange): string {
 }
 
 /**
- * Support-operations analytics. Every figure is derived by the shared service
- * from the current in-memory tickets/replies; there are no invented
- * historical snapshots, SLA or CSAT values.
+ * Support-operations analytics. Every figure is derived by the configured
+ * service from current tickets/replies; there are no invented historical
+ * snapshots, SLA or CSAT values.
  */
 export function AnalyticsPage() {
   const [range, setRange] = React.useState<AnalyticsRange>(30)
@@ -94,7 +95,7 @@ export function AnalyticsPage() {
           <CardContent className="pt-4">
             <ErrorState
               title="Analytics could not be loaded"
-              description="The shared demo service did not return analytics data."
+              description="The analytics service did not return data."
               onRetry={reload}
             />
           </CardContent>
@@ -341,8 +342,9 @@ export function AnalyticsPage() {
                   so none is shown.
                 </p>
                 <p>
-                  Data is in-memory and resets on reload. Figures update live from
-                  the shared service when tickets or replies change.
+                  {isDemoMode
+                    ? 'Demo data is in-memory and resets on reload. Figures update live when tickets or replies change.'
+                    : 'Figures come from persisted TicketFlow API data and refresh when tickets or replies change.'}
                 </p>
                 <p className="flex items-center gap-1.5 border-t border-border pt-2 text-success">
                   <CheckCircle2 aria-hidden="true" className="size-3.5" />

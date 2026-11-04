@@ -9,13 +9,14 @@ from sqlalchemy import func, select
 from app.models.activity import TicketActivity
 from app.models.agent import Agent
 from app.models.enums import TicketStatus
-from app.models.reply import CustomerReply
+from app.models.reply import CustomerReply, ReplyReview, ReplyRevision
 from app.models.requester import Requester
 from app.models.ticket import Ticket
 from app.seed import (
     ACTIVITY_SEEDS,
     AGENT_SEEDS,
     REPLY_SEEDS,
+    REVIEW_SEEDS,
     TICKET_SEEDS,
     seed_demo_data,
 )
@@ -37,6 +38,8 @@ def test_seed_creates_all_fixtures_once(session_factory, clean_db) -> None:
             "requesters": len(TICKET_SEEDS),
             "tickets": len(TICKET_SEEDS),
             "customer_replies": len(REPLY_SEEDS),
+            "reply_revisions": len(REPLY_SEEDS),
+            "reply_reviews": len(REVIEW_SEEDS),
             "ticket_activities": len(ACTIVITY_SEEDS),
         }
         assert report.skipped == {}
@@ -45,6 +48,8 @@ def test_seed_creates_all_fixtures_once(session_factory, clean_db) -> None:
         assert _count(session, Ticket) == len(TICKET_SEEDS)
         assert _count(session, Requester) == len(TICKET_SEEDS)
         assert _count(session, CustomerReply) == len(REPLY_SEEDS)
+        assert _count(session, ReplyRevision) == len(REPLY_SEEDS)
+        assert _count(session, ReplyReview) == len(REVIEW_SEEDS)
         assert _count(session, TicketActivity) == len(ACTIVITY_SEEDS)
 
 
@@ -59,8 +64,12 @@ def test_seed_is_idempotent(session_factory, clean_db) -> None:
         assert second.created == {}
         assert second.skipped["tickets"] == len(TICKET_SEEDS)
         assert second.skipped["customer_replies"] == len(REPLY_SEEDS)
+        assert second.skipped["reply_revisions"] == len(REPLY_SEEDS)
+        assert second.skipped["reply_reviews"] == len(REVIEW_SEEDS)
         assert _count(session, Ticket) == len(TICKET_SEEDS)
         assert _count(session, CustomerReply) == len(REPLY_SEEDS)
+        assert _count(session, ReplyRevision) == len(REPLY_SEEDS)
+        assert _count(session, ReplyReview) == len(REVIEW_SEEDS)
 
 
 def test_seed_never_overwrites_local_changes(session_factory, clean_db) -> None:

@@ -30,13 +30,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { DEMO_USER } from '@/data'
+import { useAuth } from '@/auth'
 import {
-  AGENT_ROLE_LABELS,
+  ACCOUNT_ROLE_LABELS,
   CATEGORY_LABELS,
   PRIORITY_LABELS,
   STATUS_LABELS,
-  TEAM_LABELS,
   TICKET_CATEGORIES,
   TICKET_PRIORITIES,
   TICKET_STATUSES,
@@ -78,12 +77,16 @@ const DENSITY_OPTIONS: Array<{
 
 const WORKING_NOW = [
   {
-    title: 'Ticket triage & reply workflow',
-    detail: 'Status, priority, category, assignment, internal notes and customer replies run against an in-memory demo service.',
+    title: 'Session & role checks',
+    detail: 'Sign-in, refresh rotation, sign-out and server-side role enforcement run through the TicketFlow API.',
+  },
+  {
+    title: 'Persistent ticket & reply workflow',
+    detail: 'Triage, internal notes, reply revisions, approvals and demo sends are stored in PostgreSQL.',
   },
   {
     title: 'Human approval gate',
-    detail: 'The service rejects sending unless the current reply version is approved by a recorded reviewer.',
+    detail: 'The API rejects sending unless the exact current reply version was approved by a different account.',
   },
   {
     title: 'Local interface preferences',
@@ -91,30 +94,28 @@ const WORKING_NOW = [
   },
 ]
 
-const NEEDS_BACKEND = [
+const LIMITATIONS = [
   {
-    title: 'Persistent storage',
-    detail: 'Tickets, replies and audit events reset when the page reloads. No database is connected.',
+    title: 'No real message delivery',
+    detail: '“Send” records a simulated demo action. No customer is contacted and no messaging provider is configured.',
   },
   {
-    title: 'Authentication & independent reviewers',
-    detail: 'The demo uses one hard-coded identity. Real sessions, roles and reviewer separation require a backend.',
+    title: 'Sign-in throttling is per process',
+    detail: 'Failed sign-in attempts are limited in API memory. A multi-instance deployment needs a shared limiter.',
   },
   {
-    title: 'Real email or messaging delivery',
-    detail: '“Send” only changes demo state. No customer is contacted and no external provider is configured.',
+    title: 'New-ticket intake',
+    detail: 'Creating tickets from the workspace is not implemented; tickets arrive through the seeded intake.',
   },
   {
-    title: 'Server-side audit enforcement',
-    detail: 'Business rules and the audit trail currently run in the browser; the backend must enforce them authoritatively.',
-  },
-  {
-    title: 'Multi-user concurrency',
-    detail: 'Changes are local to one browser tab. Shared queues need server-side state and conflict handling.',
+    title: 'Notification rules',
+    detail: 'There is no email or push notification service; workflow changes are visible in Activity Logs.',
   },
 ]
 
 export function SettingsPage() {
+  const { user, isDemo } = useAuth()
+  const displayName = user?.display_name ?? 'Signed out'
   const { preferences, setDensity, setDefaultLanding, resetPreferences } =
     usePreferences()
   const isDefault =
@@ -124,7 +125,7 @@ export function SettingsPage() {
     <div className="space-y-5">
       <PageHeader
         title="Settings"
-        description="Local interface preferences plus an honest view of the demo workflow and what still needs a backend."
+        description="Your session, local interface preferences, and an honest view of what this workspace does and does not do."
       />
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -132,43 +133,52 @@ export function SettingsPage() {
         <Card className="lg:col-span-1">
           <CardHeader>
             <div>
-              <CardTitle>Demo profile</CardTitle>
-              <CardDescription>Identity shown in the workspace</CardDescription>
+              <CardTitle>Signed-in account</CardTitle>
+              <CardDescription>
+                {isDemo ? 'Local demonstration identity' : 'Verified by the API session'}
+              </CardDescription>
             </div>
             <UserRound aria-hidden="true" className="size-4 text-subtle-foreground" />
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center gap-3">
-              <Avatar initials={initials(DEMO_USER.name)} size="lg" />
+              <Avatar initials={initials(displayName)} size="lg" />
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-foreground">
-                  {DEMO_USER.name}
+                  {displayName}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {AGENT_ROLE_LABELS[DEMO_USER.role]} ·{' '}
-                  {DEMO_USER.team ? TEAM_LABELS[DEMO_USER.team] : 'No team'}
+                  {user ? ACCOUNT_ROLE_LABELS[user.role] : 'No session'} ·{' '}
+                  {user?.agent_name ?? 'No linked agent'}
                 </p>
               </div>
             </div>
             <dl className="space-y-2 border-t border-border pt-3 text-xs">
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-muted-foreground">Agent ID</dt>
-                <dd className="font-medium tabular-nums text-foreground">{DEMO_USER.id}</dd>
+                <dd className="font-medium tabular-nums text-foreground">
+                  {user?.agent_id ?? '—'}
+                </dd>
               </div>
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-muted-foreground">Email</dt>
-                <dd className="truncate font-medium text-foreground">{DEMO_USER.email}</dd>
+                <dd className="truncate font-medium text-foreground">
+                  {user?.email ?? '—'}
+                </dd>
               </div>
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-muted-foreground">Session</dt>
                 <dd>
-                  <Badge variant="warning">Demo identity</Badge>
+                  <Badge variant={isDemo ? 'warning' : 'success'}>
+                    {isDemo ? 'Demo mode' : 'Authenticated'}
+                  </Badge>
                 </dd>
               </div>
             </dl>
             <p className="rounded-md bg-card-muted px-3 py-2 text-xs text-muted-foreground">
-              This is not an authenticated account. There is no login, password,
-              access token or identity verification in the demo frontend.
+              {isDemo
+                ? 'Demo mode runs entirely in the browser with sample data and never contacts a backend.'
+                : 'Access tokens stay in this tab’s memory. The refresh session is an HttpOnly cookie, and roles are enforced by the API on every request.'}
             </p>
           </CardContent>
         </Card>
@@ -366,7 +376,7 @@ export function SettingsPage() {
           <CardHeader>
             <div>
               <CardTitle>Integration status</CardTitle>
-              <CardDescription>What is real in this frontend today</CardDescription>
+              <CardDescription>What works today</CardDescription>
             </div>
             <ServerOff aria-hidden="true" className="size-4 text-subtle-foreground" />
           </CardHeader>
@@ -377,7 +387,7 @@ export function SettingsPage() {
                 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-foreground"
               >
                 <CheckCircle2 aria-hidden="true" className="size-3.5 text-success" />
-                Working now (demo)
+                Working now
               </h3>
               <ul className="space-y-2">
                 {WORKING_NOW.map((item) => (
@@ -395,10 +405,10 @@ export function SettingsPage() {
                 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-foreground"
               >
                 <Database aria-hidden="true" className="size-3.5 text-warning" />
-                Requires the future backend
+                Deliberate limitations
               </h3>
               <ul className="space-y-2">
-                {NEEDS_BACKEND.map((item) => (
+                {LIMITATIONS.map((item) => (
                   <li key={item.title} className="text-xs">
                     <p className="font-medium text-foreground">{item.title}</p>
                     <p className="text-muted-foreground">{item.detail}</p>
@@ -409,8 +419,8 @@ export function SettingsPage() {
 
             <p className="flex items-start gap-1.5 rounded-md bg-card-muted px-3 py-2 text-xs text-muted-foreground">
               <LockKeyhole aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
-              No API keys, credentials or connections are configured, and this page
-              intentionally has no Save, Connect or Test Connection controls.
+              No credential is ever stored in the browser, and this page has no
+              Connect or Test Connection controls.
             </p>
             <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
               <MailX aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />

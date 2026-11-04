@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { Sidebar, type NavCounts } from './sidebar'
 import { TopHeader } from './top-header'
 import { ticketService } from '@/services'
+import { useAuth } from '@/auth'
 
 /**
  * Persistent application shell: fixed sidebar + sticky top header scrolling
@@ -11,6 +12,7 @@ import { ticketService } from '@/services'
  */
 export function AppLayout() {
   const location = useLocation()
+  const { isDemo } = useAuth()
   const [counts, setCounts] = React.useState<NavCounts>({})
 
   React.useEffect(() => {
@@ -54,6 +56,15 @@ export function AppLayout() {
       <Sidebar counts={counts} />
       <div className="flex min-h-screen flex-1 flex-col lg:pl-60">
         <TopHeader counts={counts} />
+        {isDemo ? (
+          <div
+            role="status"
+            className="border-b border-warning/40 bg-warning-tint px-4 py-2 text-xs font-medium text-warning lg:px-6"
+          >
+            Demo mode — in-memory sample data. Changes reset on reload and no
+            backend is called.
+          </div>
+        ) : null}
         <main
           id="content"
           ref={mainRef}
@@ -64,8 +75,9 @@ export function AppLayout() {
           <Outlet />
         </main>
         <footer className="shrink-0 border-t border-border px-4 py-2.5 text-2xs text-subtle-foreground lg:px-6">
-          TicketFlow demo workspace — demonstration data only; no external
-          services are connected.
+          {isDemo
+            ? 'TicketFlow demo mode — in-memory data only; no external services are connected.'
+            : 'Connected to the TicketFlow API. Demo sending records a simulated action; no customer message is delivered.'}
         </footer>
       </div>
     </div>

@@ -20,7 +20,7 @@ import type { Ticket } from '@/types/ticket'
 import { formatDateTime, formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { ticketService } from '@/services'
-import { DEMO_USER } from '@/data'
+import { useAuth } from '@/auth'
 import { REPLY_TEMPLATES } from '@/lib/reply-templates'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/shared/confirm-dialog'
@@ -87,6 +87,11 @@ export function ReplyComposer({
   onReplyUpdated,
   showFeedback,
 }: ReplyComposerProps) {
+  const { user, hasPermission } = useAuth()
+  const currentUserName =
+    user?.agent_name ?? user?.display_name ?? 'your account'
+  const canReview = hasPermission('replies:review')
+
   // The active reply is the most recently created reply for this ticket.
   // `getReplies` returns newest-first, but sort defensively so the workflow
   // never operates on an older (possibly sent) reply.
@@ -158,7 +163,7 @@ export function ReplyComposer({
     setValidationError(null)
     setIsSubmitting(true)
     try {
-      await ticketService.saveReplyDraft(ticket.id, trimmed, DEMO_USER)
+      await ticketService.saveReplyDraft(ticket.id, trimmed)
       setIsForcingEdit(false)
       onReplyUpdated()
       showFeedback('Customer reply draft saved.')
@@ -181,9 +186,9 @@ export function ReplyComposer({
     setIsSubmitting(true)
     try {
       // First ensure the latest text is saved
-      const saved = await ticketService.saveReplyDraft(ticket.id, trimmed, DEMO_USER)
+      const saved = await ticketService.saveReplyDraft(ticket.id, trimmed)
       // Then submit for approval
-      await ticketService.submitReplyForApproval(saved.id, DEMO_USER)
+      await ticketService.submitReplyForApproval(saved.id)
       setIsForcingEdit(false)
       onReplyUpdated()
       showFeedback('Reply submitted for supervisor approval.')
@@ -199,7 +204,7 @@ export function ReplyComposer({
     if (!activeReply) return
     setIsSubmitting(true)
     try {
-      await ticketService.approveReply(activeReply.id, DEMO_USER)
+      await ticketService.approveReply(activeReply.id)
       onReplyUpdated()
       showFeedback('Reply approved! It can now be marked as sent.')
     } catch (err) {
@@ -222,7 +227,7 @@ export function ReplyComposer({
     setReviewError(null)
     setIsSubmitting(true)
     try {
-      await ticketService.requestReplyChanges(activeReply.id, trimmed, DEMO_USER)
+      await ticketService.requestReplyChanges(activeReply.id, trimmed)
       setShowReviewComments(false)
       setReviewerComment('')
       onReplyUpdated()
@@ -239,7 +244,7 @@ export function ReplyComposer({
     if (!activeReply) return
     setIsSubmitting(true)
     try {
-      await ticketService.markReplySent(activeReply.id, DEMO_USER)
+      await ticketService.markReplySent(activeReply.id)
       onReplyUpdated()
       showFeedback('Customer reply marked as sent in demo mode. Ticket status updated to Pending.')
     } catch (err) {
@@ -367,29 +372,31 @@ export function ReplyComposer({
                 </div>
               </div>
 
-              {/* Quick actions for supervisor review */}
-              <div className="flex shrink-0 items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="default"
-                  onClick={handleApprove}
-                  disabled={isSubmitting}
-                  className="gap-1.5"
-                >
-                  <ShieldCheck className="size-3.5" aria-hidden="true" />
-                  Approve Reply
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setShowReviewComments((v) => !v)}
-                  disabled={isSubmitting}
-                  className="gap-1.5 text-danger hover:text-danger"
-                >
-                  <AlertTriangle className="size-3.5" aria-hidden="true" />
-                  Request Changes
-                </Button>
-              </div>
+              {/* Quick actions for reviewers only (server re-checks). */}
+              {canReview ? (
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="default"
+                    onClick={handleApprove}
+                    disabled={isSubmitting}
+                    className="gap-1.5"
+                  >
+                    <ShieldCheck className="size-3.5" aria-hidden="true" />
+                    Approve Reply
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowReviewComments((v) => !v)}
+                    disabled={isSubmitting}
+                    className="gap-1.5 text-danger hover:text-danger"
+                  >
+                    <AlertTriangle className="size-3.5" aria-hidden="true" />
+                    Request Changes
+                  </Button>
+                </div>
+              ) : null}
             </div>
 
             {/* Changes comment form */}
@@ -664,7 +671,7 @@ export function ReplyComposer({
           title="Mark this reply as sent?"
           description={
             activeReply
-              ? `This records reply v${activeReply.version} for ${ticket.id} as sent by ${DEMO_USER.name} (demo mode). No email is actually delivered.`
+              ? `This records reply v${activeReply.version} for ${ticket.id} as sent by ${currentUserName} (demo mode). No email is actually delivered.`
               : undefined
           }
           confirmLabel="Mark as Sent (Demo)"

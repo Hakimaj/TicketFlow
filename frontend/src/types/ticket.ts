@@ -61,6 +61,13 @@ export interface Ticket {
   suggestedPriority: TicketPriority | null
   /** Set when triage could not confidently classify the ticket. */
   reviewNote: string | null
+  /**
+   * Optimistic-concurrency token from the API. Every triage mutation must send
+   * the version it last read; a stale value is rejected with `409` instead of
+   * overwriting another operator's change. Demo fixtures omit it because the
+   * in-memory service has no concurrent writers.
+   */
+  version?: number
 }
 
 export type AgentRole = 'admin' | 'supervisor' | 'agent'

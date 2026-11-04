@@ -14,6 +14,14 @@ from app.models.requester import Requester
 from app.models.ticket import Ticket
 
 
+def ticket_version(client, public_id: str) -> int:
+    """The concurrency version the API exposes for a ticket (1 if absent)."""
+    response = client.get(f"/api/v1/tickets/{public_id}")
+    if response.status_code != 200:
+        return 1
+    return int(response.json()["version"])
+
+
 def ticket_row(session_factory: sessionmaker[Session], public_id: str) -> dict[str, Any]:
     with session_factory() as session:
         ticket = session.scalar(
@@ -54,6 +62,10 @@ def activity_rows(
                 "actor_id": row.actor_id,
                 "actor_name": row.actor_name,
                 "is_internal_note": row.is_internal_note,
+                "reply_id": (
+                    row.reply.public_id if row.reply else None
+                ),
+                "reply_version": row.reply_version,
                 "note_id": str(row.note_id) if row.note_id else None,
                 "created_at": row.created_at,
             }

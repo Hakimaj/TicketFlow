@@ -43,7 +43,8 @@ import {
 import { formatDateTime, formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { ticketService, TicketServiceError } from '@/services'
-import { DEMO_USER } from '@/data'
+import { ApiClientError } from '@/services/apiClient'
+import { useAuth } from '@/auth'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -76,6 +77,11 @@ export function TicketDetailPage() {
   const { ticketId } = useParams<{ ticketId: string }>()
   const navigate = useNavigate()
   const location = useLocation()
+  const { user, isDemo } = useAuth()
+  // Attribution comes from the verified account; the agent link is what the
+  // assignment model uses for "my tickets".
+  const currentUserName = user?.agent_name ?? user?.display_name ?? null
+  const currentAgentId = user?.agent_id ?? null
 
   const [ticket, setTicket] = React.useState<Ticket | null>(null)
   const [activities, setActivities] = React.useState<TicketActivity[]>([])
@@ -104,6 +110,8 @@ export function TicketDetailPage() {
   } | null>(null)
 
   const returnTo = (location.state as { returnTo?: string })?.returnTo ?? '/tickets'
+  const createdTicketId = (location.state as { createdTicketId?: string } | null)
+    ?.createdTicketId
   const returnLabel = returnTo.startsWith('/activity')
     ? 'Activity Logs'
     : returnTo.startsWith('/approvals')
@@ -168,6 +176,25 @@ export function TicketDetailPage() {
     loadTicketData(ticketId, true)
   }, [ticketId, loadTicketData])
 
+  // Confirm a freshly created ticket exactly once after intake navigates here.
+  React.useEffect(() => {
+    if (!createdTicketId || !ticket || ticket.id !== createdTicketId) return
+    showFeedback(`Ticket ${createdTicketId} created and added to the queue.`)
+    // Drop the marker from history so a reload does not repeat the message.
+    navigate(`${location.pathname}${location.search}`, {
+      replace: true,
+      state: { returnTo },
+    })
+  }, [
+    createdTicketId,
+    ticket,
+    showFeedback,
+    navigate,
+    location.pathname,
+    location.search,
+    returnTo,
+  ])
+
   // Reactive listener for mutations across views
   React.useEffect(() => {
     if (!ticketId) return
@@ -177,20 +204,39 @@ export function TicketDetailPage() {
     return unsubscribe
   }, [ticketId, loadTicketData])
 
+  /**
+   * A stale `expected_version` means another operator saved first. The server
+   * rejected this change, so reload the latest state and ask the user to apply
+   * their change again — never retry silently or overwrite the other change.
+   */
+  function handleMutationError(err: unknown, fallback: string) {
+    if (err instanceof ApiClientError && err.code === 'ticket_version_conflict') {
+      showFeedback(
+        'Someone else changed this ticket first. Your change was not applied — the latest version is loaded below.',
+        'error',
+      )
+      if (ticketId) void loadTicketData(ticketId)
+      return
+    }
+    showFeedback(err instanceof Error ? err.message : fallback, 'error')
+  }
+
   // Triage actions
   async function handleStatusChange(newStatus: string) {
     if (!ticket || newStatus === ticket.status) return
     const targetStatus = newStatus as TicketStatus
     setUpdatingField('status')
     try {
-      const updated = await ticketService.updateStatus(ticket.id, targetStatus)
+      const updated = await ticketService.updateStatus(
+        ticket.id,
+        targetStatus,
+        undefined,
+        { expectedVersion: ticket.version },
+      )
       setTicket(updated)
       showFeedback(`Ticket status updated to ${STATUS_LABELS[targetStatus]}.`)
     } catch (err) {
-      showFeedback(
-        err instanceof Error ? err.message : 'Failed to update status.',
-        'error',
-      )
+      handleMutationError(err, 'Failed to update status.')
     } finally {
       setUpdatingField(null)
     }
@@ -204,16 +250,15 @@ export function TicketDetailPage() {
       const updated = await ticketService.updatePriority(
         ticket.id,
         targetPriority,
+        undefined,
+        { expectedVersion: ticket.version },
       )
       setTicket(updated)
       showFeedback(
         `Ticket priority updated to ${PRIORITY_LABELS[targetPriority]}.`,
       )
     } catch (err) {
-      showFeedback(
-        err instanceof Error ? err.message : 'Failed to update priority.',
-        'error',
-      )
+      handleMutationError(err, 'Failed to update priority.')
     } finally {
       setUpdatingField(null)
     }
@@ -227,16 +272,15 @@ export function TicketDetailPage() {
       const updated = await ticketService.updateCategory(
         ticket.id,
         targetCategory,
+        undefined,
+        { expectedVersion: ticket.version },
       )
       setTicket(updated)
       showFeedback(
         `Category updated to ${CATEGORY_LABELS[targetCategory]} (routed to ${TEAM_LABELS[updated.assignedTeam ?? 'customer_support']}).`,
       )
     } catch (err) {
-      showFeedback(
-        err instanceof Error ? err.message : 'Failed to update category.',
-        'error',
-      )
+      handleMutationError(err, 'Failed to update category.')
     } finally {
       setUpdatingField(null)
     }
@@ -249,7 +293,12 @@ export function TicketDetailPage() {
 
     setUpdatingField('assignment')
     try {
-      const updated = await ticketService.assignTicket(ticket.id, targetAgentId)
+      const updated = await ticketService.assignTicket(
+        ticket.id,
+        targetAgentId,
+        undefined,
+        { expectedVersion: ticket.version },
+      )
       setTicket(updated)
       const agent = targetAgentId
         ? agents.find((a) => a.id === targetAgentId)
@@ -260,10 +309,7 @@ export function TicketDetailPage() {
           : 'Ticket unassigned.',
       )
     } catch (err) {
-      showFeedback(
-        err instanceof Error ? err.message : 'Failed to update assignment.',
-        'error',
-      )
+      handleMutationError(err, 'Failed to update assignment.')
     } finally {
       setUpdatingField(null)
     }
@@ -282,7 +328,7 @@ export function TicketDetailPage() {
     setNoteError(null)
     setSubmittingNote(true)
     try {
-      await ticketService.addInternalNote(ticket.id, trimmed, DEMO_USER)
+      await ticketService.addInternalNote(ticket.id, trimmed)
       setNoteContent('')
       showFeedback('Internal note added to activity timeline.')
     } catch (err) {
@@ -372,7 +418,8 @@ export function TicketDetailPage() {
     ? agents.find((a) => a.id === ticket.assignedAgentId)
     : null
 
-  const isAssignedToMe = ticket.assignedAgentId === DEMO_USER.id
+  const isAssignedToMe =
+    currentAgentId !== null && ticket.assignedAgentId === currentAgentId
 
   return (
     <div className="space-y-6">
@@ -601,7 +648,9 @@ export function TicketDetailPage() {
                   />
                   <div className="flex items-center justify-between text-2xs text-subtle-foreground">
                     <span id="internal-note-help">
-                      Notes are recorded in the audit trail as {DEMO_USER.name} (Demo user).
+                      Notes are recorded in the audit trail under your account
+                      {currentUserName ? ` (${currentUserName})` : ''}
+                      {isDemo ? ' in demo mode.' : '.'}
                     </span>
                     <span>{noteContent.length} characters</span>
                   </div>
@@ -962,7 +1011,7 @@ export function TicketDetailPage() {
                           <Avatar initials={initials(agent.name)} size="sm" />
                           <span className="truncate font-medium">
                             {agent.name}
-                            {agent.isDemoUser ? ' (You)' : ''}
+                            {agent.id === currentAgentId ? ' (You)' : ''}
                           </span>
                         </div>
                       </SelectItem>
@@ -977,11 +1026,15 @@ export function TicketDetailPage() {
                     variant="outline"
                     size="sm"
                     className="mt-1.5 w-full text-xs"
-                    disabled={Boolean(updatingField)}
-                    onClick={() => handleAssignmentChange(DEMO_USER.id)}
+                    disabled={
+                      Boolean(updatingField) || currentAgentId === null
+                    }
+                    onClick={() => {
+                      if (currentAgentId) handleAssignmentChange(currentAgentId)
+                    }}
                   >
                     <UserCheck className="size-3.5" aria-hidden="true" />
-                    Assign to me ({DEMO_USER.name})
+                    Assign to me ({currentUserName ?? 'my agent profile'})
                   </Button>
                 ) : null}
               </div>
@@ -1065,11 +1118,13 @@ export function TicketDetailPage() {
 
           {/* Demonstration Notice */}
           <div className="rounded-lg border border-border/60 bg-card-muted/40 p-3.5 text-2xs text-subtle-foreground">
-            <p className="font-semibold text-foreground">Demonstration Environment</p>
+            <p className="font-semibold text-foreground">
+              {isDemo ? 'Demonstration Environment' : 'Persisted Workspace'}
+            </p>
             <p className="mt-1 leading-relaxed">
-              Triage mutations update the in-memory shared dataset and reactively
-              propagate across all queue views, sidebar counters, and dashboard
-              metrics during this application session.
+              {isDemo
+                ? 'Triage mutations update the in-memory shared dataset and reactively propagate across all queue views, sidebar counters, and dashboard metrics during this application session.'
+                : 'Triage mutations are saved by the TicketFlow API in PostgreSQL and propagate to queue views, sidebar counters, dashboard metrics, and the audit trail.'}
             </p>
           </div>
         </div>

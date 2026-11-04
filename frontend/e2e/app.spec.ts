@@ -220,8 +220,13 @@ test('settings preferences persist locally and change actual behaviour', async (
   page,
 }) => {
   await page.goto('/settings')
-  await expect(page.getByText('Demo identity', { exact: true })).toBeVisible()
-  await expect(page.getByText(/not an authenticated account/i)).toBeVisible()
+  await expect(page.getByText('Demo mode', { exact: true }).first()).toBeVisible()
+  await expect(
+    page.getByText(/Demo mode runs entirely in the browser/i),
+  ).toBeVisible()
+  await expect(
+    page.getByText(/Demo mode — in-memory sample data/i),
+  ).toBeVisible()
 
   await page.getByRole('radio', { name: /Compact/ }).check()
   await expect(page.locator('html')).toHaveAttribute('data-density', 'compact')
@@ -361,4 +366,54 @@ test('mobile navigation keeps primary destinations accessible', async ({ page })
     .click()
   await expectPath(page, '/settings')
   await expect(page.getByRole('radio', { name: /Comfortable/ })).toBeVisible()
+})
+
+test('new ticket intake validates, creates and opens the ticket', async ({ page }) => {
+  await page.goto('/tickets')
+
+  // The header action opens the real creation page (no preview dialog).
+  await page.getByRole('button', { name: 'New Ticket' }).first().click()
+  await expectPath(page, '/tickets/new')
+
+  // Empty submit is blocked with field-level messages.
+  await page.getByRole('button', { name: 'Create ticket' }).click()
+  await expect(
+    page.getByText('Enter the customer name (at least 2 characters).'),
+  ).toBeVisible()
+  await expect(page.getByText('Enter a subject of at least 3 characters.')).toBeVisible()
+  await expect(page.getByText(/Describe the request in at least 10 characters/)).toBeVisible()
+  await expectPath(page, '/tickets/new')
+
+  // Invalid email is reported without contacting any backend.
+  await page.getByLabel('Customer email').fill('not-an-email')
+  await page.getByRole('button', { name: 'Create ticket' }).click()
+  await expect(page.getByText('Enter a valid email address.')).toBeVisible()
+
+  const subject = 'Demo intake smoke ticket 90210'
+  await page.getByLabel('Customer name').fill('Selam Bekele')
+  await page.getByLabel('Customer email').fill('selam.bekele@example.test')
+  await page.getByLabel('Subject').fill(subject)
+  await page
+    .getByLabel('Description')
+    .fill('The order arrived damaged and the customer is asking for a replacement.')
+  await page.getByLabel('Category').selectOption('returns')
+  await page.getByLabel('Priority').selectOption('high')
+  await page.getByRole('button', { name: 'Create ticket' }).click()
+
+  // Creation is confirmed only after the service accepted it, then the new
+  // ticket opens.
+  await expect.poll(() => new URL(page.url()).pathname).toMatch(/^\/tickets\/TF-\d+$/)
+  await expect(page.getByText(/created and added to the queue/)).toBeVisible()
+  await expect(page.getByText(subject).first()).toBeVisible()
+  await expect(page.getByText('Ticket created via web form intake.')).toBeVisible()
+  await expect(page.getByText('Selam Bekele').first()).toBeVisible()
+
+  // The new ticket is in the queue and searchable.
+  const nav = page.getByRole('navigation', { name: 'Main navigation' })
+  await nav.getByRole('link', { name: 'All Tickets' }).click()
+  await page.getByLabel('Search this queue').fill('Demo intake smoke ticket 90210')
+  await expect(page.getByText(subject).first()).toBeVisible()
+
+  // Accounts administration needs the persistent API and is not offered here.
+  await expect(nav.getByRole('link', { name: 'Accounts' })).toHaveCount(0)
 })

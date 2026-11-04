@@ -12,6 +12,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     Uuid,
@@ -58,6 +59,9 @@ class TicketActivity(Base):
         nullable=True,
         index=True,
     )
+    # Exact reply revision the event refers to, when applicable. Together with
+    # ``reply_id`` this ties an audit event to immutable revision history.
+    reply_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     note_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("ticket_notes.id", ondelete="SET NULL"),
         nullable=True,
@@ -65,6 +69,12 @@ class TicketActivity(Base):
     )
     actor_id: Mapped[str | None] = mapped_column(
         ForeignKey("agents.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # Verified account that performed the action. Null for historical events.
+    actor_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("user_accounts.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
     # Snapshot of the actor label, including non-agent actors such as the
     # classification service. Never stores credentials or customer PII.

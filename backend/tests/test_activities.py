@@ -23,9 +23,9 @@ def _iso(hours_before_anchor: float) -> str:
 
 
 def test_ticket_activities_are_ordered_oldest_first(
-    client: TestClient, session_factory, seeded: None
+    auth_client: TestClient, session_factory, seeded: None
 ) -> None:
-    response = client.get("/api/v1/tickets/TF-1051/activities")
+    response = auth_client.get("/api/v1/tickets/TF-1051/activities")
     assert response.status_code == 200
     events = response.json()
     assert [event["id"] for event in events] == [
@@ -39,19 +39,27 @@ def test_ticket_activities_are_ordered_oldest_first(
         assert event["created_at"].endswith("Z")
 
 
-def test_ticket_activities_scoped_and_404(client: TestClient, seeded: None) -> None:
-    events = client.get("/api/v1/tickets/TF-1043/activities").json()
+def test_ticket_activities_scoped_and_404(auth_client: TestClient, seeded: None) -> None:
+    events = auth_client.get("/api/v1/tickets/TF-1043/activities").json()
     assert events == []
-    missing = client.get("/api/v1/tickets/TF-9999/activities")
+    missing = auth_client.get("/api/v1/tickets/TF-9999/activities")
     assert missing.status_code == 404
     assert missing.json()["error"]["code"] == "ticket_not_found"
 
 
 def test_new_mutation_appears_in_ticket_history(
-    client: TestClient, seeded: None
+    auth_client: TestClient, seeded: None
 ) -> None:
-    client.patch("/api/v1/tickets/TF-1051/status", json={"status": "pending"})
-    events = client.get("/api/v1/tickets/TF-1051/activities").json()
+    from tests.helpers import ticket_version
+
+    auth_client.patch(
+        "/api/v1/tickets/TF-1051/status",
+        json={
+            "status": "pending",
+            "expected_version": ticket_version(auth_client, "TF-1051"),
+        },
+    )
+    events = auth_client.get("/api/v1/tickets/TF-1051/activities").json()
     assert events[-1]["action"] == "status_changed"
     assert events[-1]["summary"] == "Status changed from Open to Pending."
 
@@ -61,8 +69,8 @@ def test_new_mutation_appears_in_ticket_history(
 # ---------------------------------------------------------------------------
 
 
-def test_global_activity_defaults(client: TestClient, seeded: None) -> None:
-    response = client.get("/api/v1/activities")
+def test_global_activity_defaults(auth_client: TestClient, seeded: None) -> None:
+    response = auth_client.get("/api/v1/activities")
     assert response.status_code == 200
     payload = response.json()
     assert payload["pagination"] == {
@@ -78,14 +86,14 @@ def test_global_activity_defaults(client: TestClient, seeded: None) -> None:
     assert items[0]["id"] == "ACT-040"  # 0.4h ago
 
 
-def test_global_filter_by_ticket(client: TestClient, seeded: None) -> None:
-    payload = client.get(
+def test_global_filter_by_ticket(auth_client: TestClient, seeded: None) -> None:
+    payload = auth_client.get(
         "/api/v1/activities", params={"ticket_id": "tf-1051"}
     ).json()
     assert payload["pagination"]["total"] == 3
     assert {item["ticket_id"] for item in payload["items"]} == {"TF-1051"}
 
-    unknown = client.get(
+    unknown = auth_client.get(
         "/api/v1/activities", params={"ticket_id": "TF-9999"}
     ).json()
     assert unknown["items"] == []
@@ -93,9 +101,9 @@ def test_global_filter_by_ticket(client: TestClient, seeded: None) -> None:
 
 
 def test_global_filter_by_action_and_actor(
-    client: TestClient, seeded: None
+    auth_client: TestClient, seeded: None
 ) -> None:
-    resolved = client.get(
+    resolved = auth_client.get(
         "/api/v1/activities", params={"action": "resolved"}
     ).json()
     expected_resolved = sum(
@@ -104,7 +112,7 @@ def test_global_filter_by_action_and_actor(
     assert resolved["pagination"]["total"] == expected_resolved
     assert {item["action"] for item in resolved["items"]} == {"resolved"}
 
-    mixed = client.get(
+    mixed = auth_client.get(
         "/api/v1/activities",
         params=[("action", "resolved"), ("action", "assigned")],
     ).json()
@@ -115,7 +123,7 @@ def test_global_filter_by_action_and_actor(
     )
     assert mixed["pagination"]["total"] == expected_mixed
 
-    hana = client.get(
+    hana = auth_client.get(
         "/api/v1/activities", params={"actor_id": "ag-02"}
     ).json()
     expected_hana = sum(
@@ -124,33 +132,33 @@ def test_global_filter_by_action_and_actor(
     assert hana["pagination"]["total"] == expected_hana
     assert {item["actor_id"] for item in hana["items"]} == {"AG-02"}
 
-    unknown_actor = client.get(
+    unknown_actor = auth_client.get(
         "/api/v1/activities", params={"actor_id": "AG-999"}
     ).json()
     assert unknown_actor["pagination"]["total"] == 0
 
 
 def test_global_search_matches_safe_fields(
-    client: TestClient, seeded: None
+    auth_client: TestClient, seeded: None
 ) -> None:
-    by_ticket = client.get(
+    by_ticket = auth_client.get(
         "/api/v1/activities", params={"search": "TF-1051"}
     ).json()
     assert by_ticket["pagination"]["total"] == 3
 
-    by_actor = client.get(
+    by_actor = auth_client.get(
         "/api/v1/activities", params={"search": "Hana"}
     ).json()
     assert by_actor["pagination"]["total"] == 4
 
-    by_summary = client.get(
+    by_summary = auth_client.get(
         "/api/v1/activities", params={"search": "Cold-chain"}
     ).json()
     assert by_summary["pagination"]["total"] == 1
     assert by_summary["items"][0]["action"] == "escalated"
 
     # Enum value and human label both match.
-    by_action_value = client.get(
+    by_action_value = auth_client.get(
         "/api/v1/activities", params={"search": "status_changed"}
     ).json()
     assert by_action_value["pagination"]["total"] == 1
@@ -161,27 +169,27 @@ def test_global_search_matches_safe_fields(
         1 for seed in ACTIVITY_SEEDS if "%" in (seed["detail"] or "")
     )
     assert 0 < expected_percent < len(ACTIVITY_SEEDS)
-    wildcard = client.get("/api/v1/activities", params={"search": "%"}).json()
+    wildcard = auth_client.get("/api/v1/activities", params={"search": "%"}).json()
     assert wildcard["pagination"]["total"] == expected_percent
 
 
 def test_global_date_window_is_start_inclusive_end_exclusive(
-    client: TestClient, seeded: None
+    auth_client: TestClient, seeded: None
 ) -> None:
     boundary = _iso(3)
-    at_or_after = client.get(
+    at_or_after = auth_client.get(
         "/api/v1/activities", params={"start": boundary, "page_size": 100}
     ).json()
     expected_from = sum(1 for seed in ACTIVITY_SEEDS if seed["hours_ago"] <= 3)
     assert at_or_after["pagination"]["total"] == expected_from
 
-    before_boundary = client.get(
+    before_boundary = auth_client.get(
         "/api/v1/activities", params={"end": boundary, "page_size": 100}
     ).json()
     expected_before = sum(1 for seed in ACTIVITY_SEEDS if seed["hours_ago"] > 3)
     assert before_boundary["pagination"]["total"] == expected_before
 
-    window = client.get(
+    window = auth_client.get(
         "/api/v1/activities",
         params={"start": _iso(3), "end": _iso(0.5), "page_size": 100},
     ).json()
@@ -191,11 +199,11 @@ def test_global_date_window_is_start_inclusive_end_exclusive(
     assert window["pagination"]["total"] == expected_window
 
 
-def test_global_sort_and_stable_tiebreak(client: TestClient, seeded: None) -> None:
-    newest = client.get(
+def test_global_sort_and_stable_tiebreak(auth_client: TestClient, seeded: None) -> None:
+    newest = auth_client.get(
         "/api/v1/activities", params={"sort_dir": "desc", "page_size": 100}
     ).json()["items"]
-    oldest = client.get(
+    oldest = auth_client.get(
         "/api/v1/activities", params={"sort_dir": "asc", "page_size": 100}
     ).json()["items"]
     assert newest[0]["id"] == "ACT-040"
@@ -208,11 +216,11 @@ def test_global_sort_and_stable_tiebreak(client: TestClient, seeded: None) -> No
         assert ids.index("ACT-037") < ids.index("ACT-044")
 
 
-def test_global_pagination_is_isolated(client: TestClient, seeded: None) -> None:
-    first = client.get(
+def test_global_pagination_is_isolated(auth_client: TestClient, seeded: None) -> None:
+    first = auth_client.get(
         "/api/v1/activities", params={"page": 1, "page_size": 5}
     ).json()
-    second = client.get(
+    second = auth_client.get(
         "/api/v1/activities", params={"page": 2, "page_size": 5}
     ).json()
     all_ids = [item["id"] for item in first["items"] + second["items"]]
@@ -221,18 +229,18 @@ def test_global_pagination_is_isolated(client: TestClient, seeded: None) -> None
     assert first["pagination"]["page_count"] == 4
 
 
-def test_activity_query_validation(client: TestClient, seeded: None) -> None:
+def test_activity_query_validation(auth_client: TestClient, seeded: None) -> None:
     for params in (
         {"page": 0},
         {"page_size": 101},
         {"action": "bogus"},
         {"sort_dir": "sideways"},
     ):
-        response = client.get("/api/v1/activities", params=params)
+        response = auth_client.get("/api/v1/activities", params=params)
         assert response.status_code == 422
         assert response.json()["error"]["code"] == "validation_error"
 
-    reversed_range = client.get(
+    reversed_range = auth_client.get(
         "/api/v1/activities", params={"start": _iso(1), "end": _iso(2)}
     )
     assert reversed_range.status_code == 422
@@ -240,9 +248,9 @@ def test_activity_query_validation(client: TestClient, seeded: None) -> None:
 
 
 def test_activity_summaries_are_privacy_safe(
-    client: TestClient, seeded: None
+    auth_client: TestClient, seeded: None
 ) -> None:
-    items = client.get(
+    items = auth_client.get(
         "/api/v1/activities", params={"page_size": 100}
     ).json()["items"]
     assert items
@@ -252,13 +260,13 @@ def test_activity_summaries_are_privacy_safe(
 
 
 def test_note_event_is_safe_in_global_log(
-    client: TestClient, seeded: None
+    auth_client: TestClient, seeded: None
 ) -> None:
     marker = "internal-note-body-2d1f"
-    note = client.post(
+    note = auth_client.post(
         "/api/v1/tickets/TF-1051/notes", json={"content": marker}
     ).json()
-    payload = client.get(
+    payload = auth_client.get(
         "/api/v1/activities", params={"action": "note_added"}
     ).json()
     assert payload["pagination"]["total"] == 1
@@ -269,10 +277,11 @@ def test_note_event_is_safe_in_global_log(
 
 
 def test_failed_mutation_leaves_no_global_activity(
-    monkeypatch, session_factory, seeded: None
+    monkeypatch, session_factory, seeded: None, accounts: None
 ) -> None:
     from app.models.enums import TicketStatus
     from app.services import tickets as ticket_service
+    from tests.conftest import REVIEWER_AGENT, principal_for
 
     def boom(*args, **kwargs):
         raise RuntimeError("audit store unavailable")
@@ -281,7 +290,13 @@ def test_failed_mutation_leaves_no_global_activity(
 
     with session_factory() as session:
         with pytest.raises(RuntimeError):
-            ticket_service.update_status(session, "TF-1051", TicketStatus.PENDING)
+            ticket_service.update_status(
+                session,
+                "TF-1051",
+                TicketStatus.PENDING,
+                expected_version=1,
+                principal=principal_for(session_factory, REVIEWER_AGENT),
+            )
 
     with session_factory() as session:
         from sqlalchemy import func, select

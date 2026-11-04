@@ -55,12 +55,25 @@ class AgentRole(StrEnum):
     AGENT = "agent"
 
 
+class AccountRole(StrEnum):
+    """Authenticated application role (separate from the HR-style agent role)."""
+
+    AGENT = "agent"
+    REVIEWER = "reviewer"
+    ADMIN = "admin"
+
+
 class ReplyState(StrEnum):
     DRAFT = "draft"
     PENDING_APPROVAL = "pending_approval"
     APPROVED = "approved"
     CHANGES_REQUESTED = "changes_requested"
     SENT = "sent"
+
+
+class ReplyReviewDecision(StrEnum):
+    APPROVED = "approved"
+    CHANGES_REQUESTED = "changes_requested"
 
 
 class ActivityActorType(StrEnum):

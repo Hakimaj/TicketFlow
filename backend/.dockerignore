@@ -1,0 +1,19 @@
+# Keep the build context to source only.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Configuration and secrets are never baked into the image.
+.env
+.env.*
+!.env.example
+
+*.log
+tests/
+htmlcov/
+.coverage

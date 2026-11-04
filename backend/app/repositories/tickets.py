@@ -10,7 +10,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import ColumnElement, Select, case, func, or_, select
+from sqlalchemy import (
+    ColumnElement,
+    Integer,
+    Select,
+    case,
+    cast,
+    func,
+    or_,
+    select,
+    text,
+)
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.enums import TicketCategory, TicketPriority, TicketStatus
@@ -33,6 +43,11 @@ _STATUS_RANK = {
     TicketStatus.RESOLVED: 4,
     TicketStatus.CLOSED: 5,
 }
+
+# Transaction-scoped advisory lock key serialising ticket-number allocation.
+# It is not a secret; it only keeps concurrent intake transactions from
+# generating the same ``TF-####`` identifier.
+_PUBLIC_ID_LOCK_KEY = 771_042_001
 
 _SORT_EXPRESSIONS: dict[TicketSortField, Any] = {
     TicketSortField.CREATED_AT: Ticket.created_at,
@@ -145,3 +160,35 @@ def get_ticket_by_public_id(
         # identity-mapped instance and eager loads to be refreshed.
         stmt = stmt.execution_options(populate_existing=True)
     return db.scalars(stmt).unique().one_or_none()
+
+
+def get_ticket_for_update(db: Session, public_id: str) -> Ticket | None:
+    """Load a ticket and lock its row for the current transaction.
+
+    The lock is taken without eager joins (PostgreSQL cannot apply
+    ``FOR UPDATE`` to the nullable side of an outer join) and reloads the row
+    so a version read after a concurrent commit is never served from a stale
+    identity-map instance. Requester/assignee load lazily inside the same
+    transaction.
+    """
+    stmt = (
+        select(Ticket)
+        .where(Ticket.public_id == public_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    return db.scalars(stmt).one_or_none()
+
+
+def next_public_id(db: Session) -> str:
+    """Allocate the next sequential ``TF-####`` identifier.
+
+    The advisory lock is held until the transaction ends, so two concurrent
+    intakes cannot compute the same maximum. Identifiers stay short, readable
+    and ordered, matching the existing seeded convention.
+    """
+    db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _PUBLIC_ID_LOCK_KEY})
+    highest = db.scalar(
+        select(func.max(cast(func.substr(Ticket.public_id, 4), Integer)))
+    )
+    return f"TF-{(int(highest) if highest is not None else 1000) + 1}"

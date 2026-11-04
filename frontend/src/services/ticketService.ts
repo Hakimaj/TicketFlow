@@ -5,6 +5,7 @@ import type {
   Ticket,
   TicketActivity,
   TicketCategory,
+  TicketChannel,
   TicketPage,
   TicketPriority,
   TicketQuery,
@@ -14,9 +15,30 @@ import type { ActivityLogFacets, ActivityLogPage, ActivityLogQuery } from '@/typ
 import type { AnalyticsRange, AnalyticsStats } from '@/types/analytics'
 
 /**
- * Data-access contract for tickets. Phase 1 is implemented against the
- * demonstration dataset; Phase 2 replaces the implementation with real HTTP
- * calls behind this same interface, so feature code should not change.
+ * Expected version for a triage mutation.
+ *
+ * API mode requires it: the server rejects a stale version with `409` so two
+ * operators cannot silently overwrite each other. Demo mode has no concurrent
+ * writers and ignores it.
+ */
+export interface TicketMutationOptions {
+  expectedVersion?: number
+}
+
+/** Staff intake payload — no actor, status or version fields. */
+export interface NewTicketInput {
+  subject: string
+  description: string
+  category: TicketCategory
+  priority?: TicketPriority
+  channel?: TicketChannel
+  requesterName: string
+  requesterEmail: string
+}
+
+/**
+ * Data-access contract for tickets, implemented by both the API-backed and the
+ * explicit demo service.
  */
 export interface TicketService {
   /** Search, filter, sort and paginate tickets. */
@@ -48,14 +70,36 @@ export interface TicketService {
   listActivityLog(query: ActivityLogQuery): Promise<ActivityLogPage>
   /** Distinct actors and actions present in the audit trail, with counts. */
   getActivityLogFacets(): Promise<ActivityLogFacets>
+  /** Staff intake: create a persisted ticket. */
+  createTicket(input: NewTicketInput): Promise<Ticket>
   /** Triage mutation: update ticket status. */
-  updateStatus(id: string, status: TicketStatus, agent?: Agent): Promise<Ticket>
+  updateStatus(
+    id: string,
+    status: TicketStatus,
+    agent?: Agent,
+    options?: TicketMutationOptions,
+  ): Promise<Ticket>
   /** Triage mutation: update ticket priority. */
-  updatePriority(id: string, priority: TicketPriority, agent?: Agent): Promise<Ticket>
+  updatePriority(
+    id: string,
+    priority: TicketPriority,
+    agent?: Agent,
+    options?: TicketMutationOptions,
+  ): Promise<Ticket>
   /** Triage mutation: update ticket category. */
-  updateCategory(id: string, category: TicketCategory, agent?: Agent): Promise<Ticket>
+  updateCategory(
+    id: string,
+    category: TicketCategory,
+    agent?: Agent,
+    options?: TicketMutationOptions,
+  ): Promise<Ticket>
   /** Triage mutation: assign or unassign a ticket. */
-  assignTicket(id: string, agentId: string | null, agent?: Agent): Promise<Ticket>
+  assignTicket(
+    id: string,
+    agentId: string | null,
+    agent?: Agent,
+    options?: TicketMutationOptions,
+  ): Promise<Ticket>
   /** Triage mutation: add an internal note to the ticket workspace. */
   addInternalNote(id: string, note: string, agent?: Agent): Promise<TicketActivity>
 

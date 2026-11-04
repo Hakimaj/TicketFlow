@@ -23,15 +23,6 @@ class NoteCreate(BaseModel):
         max_length=NOTE_MAX_LENGTH,
         description="Internal note text. Surrounding whitespace is trimmed.",
     )
-    actor_id: str | None = Field(
-        default=None,
-        max_length=16,
-        description=(
-            "Development-only actor identifier. **Untrusted** until "
-            "authentication exists; defaults to the seeded demo agent."
-        ),
-    )
-
     @field_validator("content")
     @classmethod
     def _validate_content(cls, value: str) -> str:
@@ -43,11 +34,6 @@ class NoteCreate(BaseModel):
                 f"Internal note content must be at most {NOTE_MAX_LENGTH} characters."
             )
         return trimmed
-
-    @field_validator("actor_id")
-    @classmethod
-    def _normalize_actor_id(cls, value: str | None) -> str | None:
-        return value.strip().upper() if value and value.strip() else None
 
 
 class NoteResponse(BaseModel):

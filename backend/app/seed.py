@@ -29,6 +29,7 @@ from app.models.enums import (
     ActivityAction,
     ActivityActorType,
     AgentRole,
+    ReplyReviewDecision,
     ReplyState,
     SupportTeam,
     TicketCategory,
@@ -36,7 +37,7 @@ from app.models.enums import (
     TicketPriority,
     TicketStatus,
 )
-from app.models.reply import CustomerReply
+from app.models.reply import CustomerReply, ReplyReview, ReplyRevision
 from app.models.requester import Requester
 from app.models.ticket import Ticket
 
@@ -491,6 +492,40 @@ REPLY_SEEDS: list[dict[str, Any]] = [
     },
 ]
 
+# Seeded human review decisions. They give the seeded approved/sent replies a
+# stored decision for their exact revision, so the demo-send gate works against
+# seeded data exactly as it does for newly created replies.
+REVIEW_SEEDS: list[dict[str, Any]] = [
+    {
+        "reply_id": "REP-103",
+        "version": 1,
+        "decision": ReplyReviewDecision.APPROVED,
+        "reviewer_id": "AG-01",
+        "comment": None,
+        "hours_ago": 2.0,
+    },
+    {
+        "reply_id": "REP-104",
+        "version": 1,
+        "decision": ReplyReviewDecision.CHANGES_REQUESTED,
+        "reviewer_id": "AG-01",
+        "comment": (
+            "Please confirm that size L is actually in stock and state the "
+            "expected pickup window before instructing the customer to pack "
+            "the item."
+        ),
+        "hours_ago": 3.0,
+    },
+    {
+        "reply_id": "REP-105",
+        "version": 1,
+        "decision": ReplyReviewDecision.APPROVED,
+        "reviewer_id": "AG-01",
+        "comment": None,
+        "hours_ago": 14.0,
+    },
+]
+
 ACTIVITY_SEEDS: list[dict[str, Any]] = [
     {
         "id": "ACT-041",
@@ -811,6 +846,17 @@ def seed_demo_data(session: Session, *, anchor: datetime | None = None) -> SeedR
             state=seed["state"],
             version=seed["version"],
             submitted_at=anchor - timedelta(hours=seed["submitted_hours_ago"]),
+            submitted_version=(
+                seed["version"]
+                if "submitted_hours_ago" in seed
+                else None
+            ),
+            approved_version=(
+                seed["version"]
+                if seed["state"]
+                in (ReplyState.APPROVED, ReplyState.SENT)
+                else None
+            ),
             reviewed_at=(
                 anchor - timedelta(hours=seed["reviewed_hours_ago"])
                 if "reviewed_hours_ago" in seed
@@ -834,6 +880,71 @@ def seed_demo_data(session: Session, *, anchor: datetime | None = None) -> SeedR
         existing_replies.add(public_id)
         report.record_created("customer_replies")
 
+    # --- Reply revisions (immutable snapshots) ---------------------------
+    for seed in REPLY_SEEDS:
+        reply_id = reply_ids[seed["id"]]
+        revision_id = session.scalar(
+            select(ReplyRevision.id).where(
+                ReplyRevision.reply_id == reply_id,
+                ReplyRevision.version == seed["version"],
+            )
+        )
+        if revision_id is not None:
+            report.record_skipped("reply_revisions")
+            continue
+        session.add(
+            ReplyRevision(
+                reply_id=reply_id,
+                version=seed["version"],
+                body=seed["body"],
+                author_id=seed["author_id"],
+                created_at=anchor - timedelta(hours=seed["created_hours_ago"]),
+            )
+        )
+        session.flush()
+        report.record_created("reply_revisions")
+
+    # --- Review decisions (append-only) ----------------------------------
+    agent_names = {
+        agent_id: name
+        for agent_id, name in session.execute(
+            select(Agent.id, Agent.name)
+        ).all()
+    }
+    for seed in REVIEW_SEEDS:
+        reply_id = reply_ids[seed["reply_id"]]
+        revision = session.scalar(
+            select(ReplyRevision).where(
+                ReplyRevision.reply_id == reply_id,
+                ReplyRevision.version == seed["version"],
+            )
+        )
+        if revision is None:  # pragma: no cover - revision loop above
+            continue
+        existing = session.scalar(
+            select(ReplyReview.id).where(
+                ReplyReview.reply_id == reply_id,
+                ReplyReview.version == seed["version"],
+                ReplyReview.decision == seed["decision"],
+            )
+        )
+        if existing is not None:
+            report.record_skipped("reply_reviews")
+            continue
+        session.add(
+            ReplyReview(
+                reply_id=reply_id,
+                revision_id=revision.id,
+                version=seed["version"],
+                decision=seed["decision"],
+                reviewer_id=seed["reviewer_id"],
+                reviewer_name=agent_names[seed["reviewer_id"]],
+                comment=seed["comment"],
+                created_at=anchor - timedelta(hours=seed["hours_ago"]),
+            )
+        )
+        report.record_created("reply_reviews")
+
     # --- Activity -------------------------------------------------------
     agent_ids_by_name = {
         name: agent_id
@@ -856,6 +967,7 @@ def seed_demo_data(session: Session, *, anchor: datetime | None = None) -> SeedR
                 reply_id=(
                     reply_ids.get(seed["reply_id"]) if seed.get("reply_id") else None
                 ),
+                reply_version=1 if seed.get("reply_id") else None,
                 actor_id=agent_ids_by_name.get(seed["actor_name"]),
                 actor_name=seed["actor_name"],
                 actor_type=seed["actor_type"],

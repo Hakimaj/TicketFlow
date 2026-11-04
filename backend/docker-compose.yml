@@ -23,7 +23,9 @@ services:
       # Deterministic collation keeps ordering stable across machines.
       POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'
     ports:
-      - '${POSTGRES_PORT:-5432}:5432'
+      # Bind to loopback only: local development must never expose PostgreSQL
+      # on every host interface by default.
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
     volumes:
       - ticketflow_pgdata:/var/lib/postgresql/data
     healthcheck:
